@@ -1,5 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
+import { supabase, hasSupabase } from './lib/supabase'
 
 // CONFIG
 const PRO_AUTH = { username: 'professionista', password: 'apprendi2025' }
