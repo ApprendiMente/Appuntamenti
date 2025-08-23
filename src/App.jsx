@@ -39,7 +39,16 @@ export default function App() {
   const [users, setUsers] = useState(() => loadLS(LS.users, []))
   const [role, setRole] = useState(null)
   const [authOk, setAuthOk] = useState(false)
-  const [currentProId, setCurrentProId] = useState(null)
+const [currentProId, setCurrentProId] = useState(() => {
+  try { return localStorage.getItem('appr_currentProId') || null } catch { return null }
+})
+
+useEffect(() => {
+  try {
+    if (currentProId) localStorage.setItem('appr_currentProId', currentProId)
+    else localStorage.removeItem('appr_currentProId')
+  } catch {}
+}, [currentProId])
   const [currentUserId, setCurrentUserId] = useState(null)
 const [hydrated, setHydrated] = useState(false)
 const initialPros = useRef(pros)
@@ -399,6 +408,8 @@ function ProIdentity({ pros, onCreate, onSelect, onBack, onUpdate, onDelete }) {
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
+  const [selectedId, setSelectedId] = useState('');
+
   return (
     <div className="grid md:grid-cols-2 gap-6">
       <Card accent={'var(--brand-primary)'}>
@@ -411,13 +422,20 @@ function ProIdentity({ pros, onCreate, onSelect, onBack, onUpdate, onDelete }) {
         </div>
         {tab === 'entra' ? (
           <div className="space-y-3">
-            <Field label="Seleziona il tuo profilo professionista">
-              <select className="rounded-xl border p-2" onChange={(e)=> onSelect(e.target.value)} defaultValue="">
-                <option value="" disabled>- scegli -</option>
-                {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </Field>
-          </div>
+             <Field label="Seleziona il tuo profilo professionista">
+  <div className="flex gap-2">
+    <select className="rounded-xl border p-2"
+            value={selectedId}
+            onChange={(e)=> setSelectedId(e.target.value)}>
+      <option value="" disabled>- scegli -</option>
+      {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+    <Button onClick={()=> selectedId ? onSelect(selectedId) : alert('Seleziona un professionista')}>
+      Entra
+    </Button>
+  </div>
+</Field>
+            </div>
         ) : (
           <div className="space-y-3">
             <Field label="Nome e Cognome"><input className="rounded-xl border p-2" value={name} onChange={(e)=>setName(e.target.value)} placeholder="Mario Rossi" /></Field>
