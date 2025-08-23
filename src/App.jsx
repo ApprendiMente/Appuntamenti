@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, hasSupabase } from './lib/supabase'
 
 // CONFIG
@@ -19,6 +19,7 @@ function buildISOFromYMD_HHMM(ymd, hhmm) {
   if (!m || !t) return null
   const [, Y, M, D] = m; const [, HH, MM] = t
   const date = new Date(Number(Y), Number(M)-1, Number(D), Number(HH), Number(MM))
+  
   // ===== Supabase sync (Option 2 MVP) =====
 const TENANT_ID = 'default'
 const savingRef = useRef(false)
