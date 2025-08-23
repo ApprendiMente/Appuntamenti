@@ -19,75 +19,6 @@ function buildISOFromYMD_HHMM(ymd, hhmm) {
   if (!m || !t) return null
   const [, Y, M, D] = m; const [, HH, MM] = t
   const date = new Date(Number(Y), Number(M)-1, Number(D), Number(HH), Number(MM))
-  
-  // ===== Supabase sync (Option 2 MVP) =====
-const TENANT_ID = 'default'
-const savingRef = useRef(false)
-
-async function remoteLoad() {
-  if (!hasSupabase) return null
-  const { data, error } = await supabase
-    .from('app_state')
-    .select('data')
-    .eq('id', TENANT_ID)
-    .single()
-  if (error) { console.warn('Supabase load error', error); return null }
-  return data?.data || null
-}
-
-async function remoteSave(snapshot) {
-  if (!hasSupabase) return
-  try {
-    savingRef.current = true
-    const { error } = await supabase
-      .from('app_state')
-      .upsert({
-        id: TENANT_ID,
-        data: snapshot,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'id' })
-    if (error) console.warn('Supabase save error', error)
-  } finally {
-    setTimeout(() => { savingRef.current = false }, 200)
-  }
-}
-
-// Boot: preferisci lo stato remoto se esiste; attiva Realtime
-useEffect(() => {
-  (async () => {
-    const remote = await remoteLoad()
-    if (remote) {
-      setPros(remote.pros || [])
-      setUsers(remote.users || [])
-      setCurrentProId(remote.currentProId || null)
-    }
-    if (hasSupabase && supabase?.channel) {
-      try {
-        supabase
-          .channel('app_state_changes')
-          .on('postgres_changes',
-              { event: '*', schema: 'public', table: 'app_state', filter: `id=eq.${TENANT_ID}` },
-              (payload) => {
-                const next = payload.new?.data
-                if (!next || savingRef.current) return
-                setPros(next.pros || [])
-                setUsers(next.users || [])
-                setCurrentProId(next.currentProId || null)
-              })
-          .subscribe()
-      } catch (e) {
-        console.warn('Realtime not available', e)
-      }
-    }
-  })()
-}, [])
-
-// Salva su Supabase ad ogni modifica
-useEffect(() => {
-  if (!hasSupabase) return
-  remoteSave({ pros, users, currentProId })
-}, [pros, users, currentProId])
-// ===== end Supabase sync =====
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 const fmtIt = (iso) => {
@@ -113,6 +44,70 @@ export default function App() {
 
   useEffect(() => saveLS(LS.pros, pros), [pros])
   useEffect(() => saveLS(LS.users, users), [users])
+
+// ===== Supabase sync (Option 2 MVP) =====
+const TENANT_ID = 'default'
+const savingRef = useRef(false)
+
+async function remoteLoad() {
+  if (!hasSupabase) return null
+  const { data, error } = await supabase
+    .from('app_state')
+    .select('data')
+    .eq('id', TENANT_ID)
+    .single()
+  if (error) { console.warn('Supabase load error', error); return null }
+  return data?.data || null
+}
+
+async function remoteSave(snapshot) {
+  if (!hasSupabase) return
+  try {
+    savingRef.current = true
+    const { error } = await supabase
+      .from('app_state')
+      .upsert(
+        { id: TENANT_ID, data: snapshot, updated_at: new Date().toISOString() },
+        { onConflict: 'id' }
+      )
+    if (error) console.warn('Supabase save error', error)
+  } finally {
+    setTimeout(() => { savingRef.current = false }, 200)
+  }
+}
+
+// Boot: carica dallo stato remoto e attiva Realtime
+useEffect(() => {
+  (async () => {
+    const remote = await remoteLoad()
+    if (remote) {
+      setPros(remote.pros || [])
+      setUsers(remote.users || [])
+      setCurrentProId(remote.currentProId || null)
+    }
+    if (hasSupabase && supabase?.channel) {
+      supabase
+        .channel('app_state_changes')
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'app_state', filter: `id=eq.${TENANT_ID}` },
+          (payload) => {
+            const next = payload.new?.data
+            if (!next || savingRef.current) return
+            setPros(next.pros || [])
+            setUsers(next.users || [])
+            setCurrentProId(next.currentProId || null)
+          })
+        .subscribe()
+    }
+  })()
+}, [])
+
+// Salva remoto ad ogni modifica locale
+useEffect(() => {
+  if (!hasSupabase) return
+  remoteSave({ pros, users, currentProId })
+}, [pros, users, currentProId])
+// ===== end Supabase sync =====
 
   const currentPro = useMemo(() => pros.find(p => p.id === currentProId) || null, [pros, currentProId])
   const currentUser = useMemo(() => users.find(u => u.id === currentUserId) || null, [users, currentUserId])
