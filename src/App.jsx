@@ -41,11 +41,14 @@ export default function App() {
   const [authOk, setAuthOk] = useState(false)
   const [currentProId, setCurrentProId] = useState(null)
   const [currentUserId, setCurrentUserId] = useState(null)
+const [hydrated, setHydrated] = useState(false)
+const initialPros = useRef(pros)
+const initialUsers = useRef(users)
 
   useEffect(() => saveLS(LS.pros, pros), [pros])
   useEffect(() => saveLS(LS.users, users), [users])
 
-// ===== Supabase sync (Option 2 MVP) =====
+// ===== Supabase sync (Option 2 MVP, safe) =====
 const TENANT_ID = 'default'
 const savingRef = useRef(false)
 
@@ -72,41 +75,58 @@ async function remoteSave(snapshot) {
       )
     if (error) console.warn('Supabase save error', error)
   } finally {
+    // usa un piccolo delay per evitare eco degli eventi realtime
     setTimeout(() => { savingRef.current = false }, 200)
   }
 }
 
-// Boot: carica dallo stato remoto e attiva Realtime
+// Boot: carica dal remoto; se non esiste la riga e local ha dati, semina; poi attiva Realtime
 useEffect(() => {
   (async () => {
     const remote = await remoteLoad()
     if (remote) {
+      // aggiorna SOLO i dati condivisi
       setPros(remote.pros || [])
       setUsers(remote.users || [])
-      setCurrentProId(remote.currentProId || null)
+    } else {
+      // la riga non esiste: se local ha dati, semina
+      if ((initialPros.current?.length || initialUsers.current?.length) && hasSupabase) {
+        await remoteSave({ pros: initialPros.current, users: initialUsers.current })
+      }
     }
+
+    // attiva realtime
     if (hasSupabase && supabase?.channel) {
-      supabase
-        .channel('app_state_changes')
-        .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'app_state', filter: `id=eq.${TENANT_ID}` },
-          (payload) => {
-            const next = payload.new?.data
-            if (!next || savingRef.current) return
-            setPros(next.pros || [])
-            setUsers(next.users || [])
-            setCurrentProId(next.currentProId || null)
-          })
-        .subscribe()
+      try {
+        channel = supabase
+          .channel('app_state_changes')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'app_state', filter: `id=eq.${TENANT_ID}` },
+            (payload) => {
+              const next = payload.new?.data
+              if (!next || savingRef.current) return
+              // applica SOLO i dati condivisi (niente currentProId!)
+              setPros(next.pros || [])
+              setUsers(next.users || [])
+            }
+          )
+          .subscribe()
+      } catch (e) { console.warn('Realtime not available', e) }
     }
+
+    setHydrated(true) // da qui in poi è consentito salvare
   })()
+  return () => {try { if (channel) supabase.removeChannel(channel) } catch {}
+}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [])
 
-// Salva remoto ad ogni modifica locale
+// Salva su Supabase al variare dei dati condivisi (solo dopo idratazione)
 useEffect(() => {
-  if (!hasSupabase) return
-  remoteSave({ pros, users, currentProId })
-}, [pros, users, currentProId])
+  if (!hasSupabase || !hydrated) return
+  remoteSave({ pros, users }) // <- NON includere currentProId
+}, [pros, users, hydrated])
 // ===== end Supabase sync =====
 
   const currentPro = useMemo(() => pros.find(p => p.id === currentProId) || null, [pros, currentProId])
