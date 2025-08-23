@@ -45,6 +45,10 @@ const [hydrated, setHydrated] = useState(false)
 const initialPros = useRef(pros)
 const initialUsers = useRef(users)
 
+// NEW: controllo consistenza / versionamento
+const [rev, setRev] = useState(0)
+const lastAppliedRef = useRef(null) // { pros: [...], users: [...] } ultimo snapshot remoto applicato
+
   useEffect(() => saveLS(LS.pros, pros), [pros])
   useEffect(() => saveLS(LS.users, users), [users])
 
@@ -67,35 +71,35 @@ async function remoteSave(snapshot) {
   if (!hasSupabase) return
   try {
     savingRef.current = true
+    const toSave = { ...snapshot, rev: (rev || 0) + 1 } // ++rev
     const { error } = await supabase
       .from('app_state')
-      .upsert(
-        { id: TENANT_ID, data: snapshot, updated_at: new Date().toISOString() },
-        { onConflict: 'id' }
-      )
+      .upsert({ id: TENANT_ID, data: toSave, updated_at: new Date().toISOString() }, { onConflict: 'id' })
     if (error) console.warn('Supabase save error', error)
+    else {
+      setRev(r => r + 1)
+      lastAppliedRef.current = { pros: snapshot.pros || [], users: snapshot.users || [] }
+    }
   } finally {
-    // usa un piccolo delay per evitare eco degli eventi realtime
     setTimeout(() => { savingRef.current = false }, 200)
   }
 }
 
 // Boot: carica dal remoto; se non esiste la riga e local ha dati, semina; poi attiva Realtime
 useEffect(() => {
-  (async () => {
+  let channel = null
+  ;(async () => {
     const remote = await remoteLoad()
     if (remote) {
-      // aggiorna SOLO i dati condivisi
-      setPros(remote.pros || [])
-      setUsers(remote.users || [])
-    } else {
-      // la riga non esiste: se local ha dati, semina
-      if ((initialPros.current?.length || initialUsers.current?.length) && hasSupabase) {
-        await remoteSave({ pros: initialPros.current, users: initialUsers.current })
-      }
+      const nextData = { pros: remote.pros || [], users: remote.users || [] }
+      setPros(nextData.pros)
+      setUsers(nextData.users)
+      setRev(typeof remote.rev === 'number' ? remote.rev : 0)
+      lastAppliedRef.current = nextData
+    } else if ((initialPros.current?.length || initialUsers.current?.length) && hasSupabase) {
+      await remoteSave({ pros: initialPros.current, users: initialUsers.current })
     }
 
-    // attiva realtime
     if (hasSupabase && supabase?.channel) {
       try {
         channel = supabase
@@ -106,26 +110,41 @@ useEffect(() => {
             (payload) => {
               const next = payload.new?.data
               if (!next || savingRef.current) return
-              // applica SOLO i dati condivisi (niente currentProId!)
-              setPros(next.pros || [])
-              setUsers(next.users || [])
+
+              // ignora eventi “vecchi” o identici
+              if (typeof next.rev === 'number' && next.rev <= rev) return
+              const incoming = { pros: next.pros || [], users: next.users || [] }
+              const applied = lastAppliedRef.current
+              if (applied && JSON.stringify(applied) === JSON.stringify(incoming)) return
+
+              setPros(incoming.pros)
+              setUsers(incoming.users)
+              setRev(typeof next.rev === 'number' ? next.rev : (rev + 1))
+              lastAppliedRef.current = incoming
             }
           )
           .subscribe()
       } catch (e) { console.warn('Realtime not available', e) }
     }
 
-    setHydrated(true) // da qui in poi è consentito salvare
+    setHydrated(true)
   })()
-  return () => {try { if (channel) supabase.removeChannel(channel) } catch {}
-}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  // cleanup canale (evita duplicati su rimontaggi/hot reload)
+  return () => {
+    try { if (channel) supabase.removeChannel(channel) } catch {}
+  }
+// eslint-disable-next-line react-hooks/exhaustive-deps
 }, [])
 
 // Salva su Supabase al variare dei dati condivisi (solo dopo idratazione)
 useEffect(() => {
   if (!hasSupabase || !hydrated) return
-  remoteSave({ pros, users }) // <- NON includere currentProId
+  const snapshot = { pros, users }
+  if (lastAppliedRef.current && JSON.stringify(lastAppliedRef.current) === JSON.stringify(snapshot)) {
+    return // nessun cambiamento reale rispetto all’ultimo remoto applicato
+  }
+  remoteSave(snapshot)
 }, [pros, users, hydrated])
 // ===== end Supabase sync =====
 
