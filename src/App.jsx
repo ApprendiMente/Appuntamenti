@@ -498,8 +498,8 @@ function ProDashboard({
   onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned, onRegenerateCode,
   onBack , onDeleteHistory
 }) {
-  // --- NUOVO: filtro e export ---
-  const [showAll, setShowAll] = useState(false);                      // false = solo miei utenti
+  // --- filtro miei/tutti in lista visibile ---
+  const [showAll, setShowAll] = useState(false); // false = solo miei utenti
   const visibleUsers = useMemo(() => (
     showAll ? users : users.filter(u => (u.percorsi||[]).some(p => p.professionalId === me.id))
   ), [users, me.id, showAll]);
@@ -514,13 +514,20 @@ function ProDashboard({
     }
   }, [visibleUsers, selectedUserId]);
 
-  // form utente semplificato (rimosse spunte promemoria)
+  // form utente
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' });
   const [percForm, setPercForm] = useState({ name:'', professionalId: me.id, totalSessions: 10 })
   const [dtOpen, setDtOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
 
- // --- EXPORT: una riga per utente (aggregazioni), XLSX e PDF ---
+  // --- pannelli export ---
+  const [exportMineOpen, setExportMineOpen] = useState(false)
+  const [exportAllOpen, setExportAllOpen] = useState(false)
+  const [monthSel, setMonthSel] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` // YYYY-MM
+  })
+
+  // --- EXPORT: una riga per UTENTE (aggregazioni), XLSX e PDF ---
   function buildUserRowsSingle(usersSource) {
     const rows = []
     for (const u of usersSource) {
@@ -528,9 +535,7 @@ function ProDashboard({
       const percorsiNames = percs.map(p => p.name).join(' | ')
       const professionals = Array.from(
         new Set(
-          percs
-            .map(p => pros.find(pr => pr.id === p.professionalId)?.name)
-            .filter(Boolean)
+          percs.map(p => pros.find(pr => pr.id === p.professionalId)?.name).filter(Boolean)
         )
       ).join(' | ')
       const totTot = percs.reduce((s,p)=> s + (Number(p.totalSessions)||0), 0)
@@ -564,11 +569,11 @@ function ProDashboard({
   async function exportXLSX(rows, filename = 'utenti.xlsx') {
     if (!rows.length) { alert('Nessun dato da esportare'); return }
     const mod = await import('xlsx')
-    const XLSX = mod.default || mod         // <-- compatibilità default/named
+    const XLSX = mod.default || mod
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(rows)
     ws['!cols'] = Object.keys(rows[0]).map(k => ({ wch: Math.max(16, k.length) }))
-    XLSX.utils.book_append_sheet(wb, ws, 'Utenti')
+    XLSX.utils.book_append_sheet(wb, ws, 'Dati')
     XLSX.writeFile(wb, filename)
   }
 
@@ -585,16 +590,67 @@ function ProDashboard({
       margin: { top: 40, bottom: 30 },
       didDrawPage: () => {
         doc.setFontSize(10)
-        doc.text('Esportazione utenti - ApprendiMente', 40, 24)
+        doc.text('Esportazione - ApprendiMente', 40, 24)
         doc.text(new Date().toLocaleString('it-IT'), doc.internal.pageSize.getWidth() - 160, 24)
       }
     })
     doc.save(filename)
   }
 
+    // --- EXPORT: righe = giorni del mese, colonne = professionisti, + colonna Totale ---
+  function buildMonthlyRows(monthStr /* YYYY-MM */) {
+    if (!/^\d{4}-\d{2}$/.test(monthStr)) return []
+    const [Y, M] = monthStr.split('-').map(Number)
+    const monthIndex = M - 1
+    const daysInMonth = new Date(Y, monthIndex + 1, 0).getDate()
+
+    const proNames = pros.map(p => p.name) // colonne (una per pro)
+    const proById = new Map(pros.map(p => [p.id, p.name]))
+
+    // inizializza righe: 'Giorno' + tutte le colonne dei professionisti
+    const rows = []
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dd = String(d).padStart(2, '0')
+      const label = `${dd}-${String(M).padStart(2,'0')}-${Y}`
+      const row = { 'Giorno': label }
+      for (const pn of proNames) row[pn] = 0
+      rows.push(row)
+    }
+
+    // conteggio incontri confermati (storico)
+    for (const u of users) {
+      for (const p of (u.percorsi || [])) {
+        const proName = proById.get(p.professionalId)
+        if (!proName) continue
+        for (const h of (p.history || [])) {
+          const dt = new Date(h.datetimeISO)
+          const y = dt.getFullYear()
+          const m = dt.getMonth() // 0-based
+          if (y === Y && m === monthIndex) {
+            const day = dt.getDate()
+            const row = rows[day - 1]
+            if (row && Object.prototype.hasOwnProperty.call(row, proName)) {
+              row[proName] = (row[proName] || 0) + 1
+            }
+          }
+        }
+      }
+    }
+
+    // aggiungi colonna 'Totale' come ultima colonna (somma sulle colonne dei professionisti)
+    for (const row of rows) {
+      let sum = 0
+      for (const pn of proNames) sum += Number(row[pn] || 0)
+      row['Totale'] = sum
+    }
+
+    return rows
+  }
+
+
   return (
     <div className="space-y-6">
-           {/* header */}
+      {/* header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold">Area Professionisti</h2>
@@ -610,54 +666,71 @@ function ProDashboard({
             {showAll ? 'Vedi solo i miei utenti' : 'Vedi tutti gli utenti'}
           </Button>
 
-          {/* export menu */}
+          {/* Esporta MIEI UTENTI */}
           <div className="relative">
-            <Button onClick={()=> setExportOpen(o=>!o)}>Esporta</Button>
-            {exportOpen && (
+            <Button onClick={()=> setExportMineOpen(o=>!o)}>Esporta miei utenti</Button>
+            {exportMineOpen && (
               <div className="absolute right-0 mt-2 w-64 rounded-xl border bg-white shadow p-2 z-10">
-                <div className="text-xs text-gray-500 px-1 pb-2">Formato e dataset</div>
+                <div className="text-xs text-gray-500 px-1 pb-2">Formato</div>
                 <div className="flex flex-col gap-2">
                   <Button variant="ghost" onClick={async ()=>{
                     const mine = users.filter(u => (u.percorsi||[]).some(p => p.professionalId === me.id))
                     const rows = buildUserRowsSingle(mine)
                     await exportXLSX(rows, `utenti_${me.name.replace(/\s+/g,'_')}.xlsx`)
-                    setExportOpen(false)
-                  }}>XLSX — Solo miei utenti</Button>
-
-                  <Button variant="ghost" onClick={async ()=>{
-                    const rows = buildUserRowsSingle(users)
-                    await exportXLSX(rows, `utenti_tutti.xlsx`)
-                    setExportOpen(false)
-                  }}>XLSX — Tutti gli utenti</Button>
-
-                  <div className="h-px bg-gray-200 my-1" />
+                    setExportMineOpen(false)
+                  }}>XLSX — miei utenti</Button>
 
                   <Button variant="ghost" onClick={async ()=>{
                     const mine = users.filter(u => (u.percorsi||[]).some(p => p.professionalId === me.id))
                     const rows = buildUserRowsSingle(mine)
                     await exportPDF(rows, `utenti_${me.name.replace(/\s+/g,'_')}.pdf`)
-                    setExportOpen(false)
-                  }}>PDF — Solo miei utenti</Button>
-
-                  <Button variant="ghost" onClick={async ()=>{
-                    const rows = buildUserRowsSingle(users)
-                    await exportPDF(rows, `utenti_tutti.pdf`)
-                    setExportOpen(false)
-                  }}>PDF — Tutti gli utenti</Button>
+                    setExportMineOpen(false)
+                  }}>PDF — miei utenti</Button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* ripristino bottoni che c’erano prima */}
+          {/* Esporta TUTTI (tabella mensile per giorno x professionista) */}
+          <div className="relative">
+            <Button onClick={()=> setExportAllOpen(o=>!o)}>Esporta tutti</Button>
+            {exportAllOpen && (
+              <div className="absolute right-0 mt-2 w-80 rounded-xl border bg-white shadow p-3 z-10">
+                <div className="text-xs text-gray-500 px-1 pb-1">Seleziona mese/anno</div>
+                <div className="flex items-center gap-2 px-1 pb-2">
+                  <input
+                    type="month"
+                    className="rounded-xl border p-2"
+                    value={monthSel}
+                    onChange={(e)=> setMonthSel(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button variant="ghost" onClick={async ()=>{
+                    const rows = buildMonthlyRows(monthSel)
+                    if (!rows.length) { alert('Nessun dato per il mese selezionato'); return }
+                    await exportXLSX(rows, `incontri_${monthSel}.xlsx`)
+                    setExportAllOpen(false)
+                  }}>XLSX — riepilogo mensile</Button>
+
+                  <Button variant="ghost" onClick={async ()=>{
+                    const rows = buildMonthlyRows(monthSel)
+                    if (!rows.length) { alert('Nessun dato per il mese selezionato'); return }
+                    await exportPDF(rows, `incontri_${monthSel}.pdf`)
+                    setExportAllOpen(false)
+                  }}>PDF — riepilogo mensile</Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* bottoni di navigazione */}
           <Button variant="ghost" onClick={onBack}>Indietro</Button>
           <Button variant="ghost" onClick={onLogout}>Esci</Button>
         </div>
       </div>
 
-
-
-      {/* crea/gestisci utente (rimosse spunte promemoria) */}
+      {/* crea/gestisci utente */}
       <Card accent={me.color}>
         <h3 className="text-lg font-semibold mb-3">Crea/gestisci utenti</h3>
         <div className="grid md:grid-cols-3 gap-3">
@@ -732,7 +805,7 @@ function ProDashboard({
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-3">{/* <-- 2 colonne, rimosse spunte promemoria */}
+              <div className="grid md:grid-cols-2 gap-3">
                 <Field label="Mail">
                   <input type="email" className="rounded-xl border p-2"
                          value={selectedUser.email}
