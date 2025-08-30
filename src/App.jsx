@@ -563,10 +563,10 @@ function ProDashboard({
 
   async function exportXLSX(rows, filename = 'utenti.xlsx') {
     if (!rows.length) { alert('Nessun dato da esportare'); return }
-    const XLSX = await import('xlsx')
+    const mod = await import('xlsx')
+    const XLSX = mod.default || mod         // <-- compatibilità default/named
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(rows)
-    // larghezze colonna sensate
     ws['!cols'] = Object.keys(rows[0]).map(k => ({ wch: Math.max(16, k.length) }))
     XLSX.utils.book_append_sheet(wb, ws, 'Utenti')
     XLSX.writeFile(wb, filename)
@@ -594,7 +594,7 @@ function ProDashboard({
 
   return (
     <div className="space-y-6">
-      {/* header */}
+           {/* header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold">Area Professionisti</h2>
@@ -603,13 +603,15 @@ function ProDashboard({
             {me.name}
           </span>
         </div>
+
         <div className="flex gap-2">
-          {/* nuovo toggle filtro */}
+          {/* toggle filtro */}
           <Button variant="ghost" onClick={()=> setShowAll(s=>!s)}>
             {showAll ? 'Vedi solo i miei utenti' : 'Vedi tutti gli utenti'}
           </Button>
-          {/* export */}
-                   <div className="relative">
+
+          {/* export menu */}
+          <div className="relative">
             <Button onClick={()=> setExportOpen(o=>!o)}>Esporta</Button>
             {exportOpen && (
               <div className="absolute right-0 mt-2 w-64 rounded-xl border bg-white shadow p-2 z-10">
@@ -646,6 +648,13 @@ function ProDashboard({
               </div>
             )}
           </div>
+
+          {/* ripristino bottoni che c’erano prima */}
+          <Button variant="ghost" onClick={onBack}>Indietro</Button>
+          <Button variant="ghost" onClick={onLogout}>Esci</Button>
+        </div>
+      </div>
+
 
 
       {/* crea/gestisci utente (rimosse spunte promemoria) */}
