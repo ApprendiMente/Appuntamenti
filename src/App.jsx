@@ -170,9 +170,16 @@ useEffect(() => {
   }
   function generateUniqueCode() { let code; do { code = String(Math.floor(100000 + Math.random()*900000)) } while (users.some(u => u.code === code)); return code }
   function createUser({ fullName, phone, email }) {
-    const u = { id: uid(), code: generateUniqueCode(), fullName: fullName.trim(), phone: (phone||'').trim(), email: (email||'').trim(), notificationEmail: true, notificationSms: false, percorsi: [] }
-    setUsers(prev => [...prev, u]); return u
+  const u = {
+    id: uid(),
+    code: generateUniqueCode(),
+    fullName: fullName.trim(),
+    phone: (phone||'').trim(),
+    email: (email||'').trim(),
+    percorsi: []
   }
+  setUsers(prev => [...prev, u]); return u
+}
   function updateUser(u) { setUsers(prev => prev.map(x => x.id === u.id ? u : x)) }
   function deleteUser(userId) { setUsers(prev => prev.filter(u => u.id !== userId)); if (currentUserId === userId) setCurrentUserId(null) }
   function addPercorso(userId, { name, professionalId, totalSessions }) {
