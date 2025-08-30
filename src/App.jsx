@@ -485,47 +485,155 @@ function ProIdentity({ pros, onCreate, onSelect, onBack, onUpdate, onDelete }) {
   )
 }
 
-function ProDashboard({ pros, me, users, onLogout, onCreateUser, onDeleteUser, onUpdateUser, onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned, onRegenerateCode, onBack , onDeleteHistory}) {
-  const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'', notificationEmail:true, notificationSms:false })
-  const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || null)
-  const selectedUser = users.find(u => u.id === selectedUserId) || null
+function ProDashboard({
+  pros, me, users,
+  onLogout, onCreateUser, onDeleteUser, onUpdateUser,
+  onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned, onRegenerateCode,
+  onBack , onDeleteHistory
+}) {
+  // --- NUOVO: filtro e export ---
+  const [showAll, setShowAll] = useState(false);                      // false = solo miei utenti
+  const visibleUsers = useMemo(() => (
+    showAll ? users : users.filter(u => (u.percorsi||[]).some(p => p.professionalId === me.id))
+  ), [users, me.id, showAll]);
+
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const selectedUser = visibleUsers.find(u => u.id === selectedUserId) || null;
+
+  useEffect(() => {
+    if (!visibleUsers.length) { setSelectedUserId(null); return; }
+    if (!selectedUserId || !visibleUsers.some(u => u.id === selectedUserId)) {
+      setSelectedUserId(visibleUsers[0].id);
+    }
+  }, [visibleUsers, selectedUserId]);
+
+  // form utente semplificato (rimosse spunte promemoria)
+  const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' });
   const [percForm, setPercForm] = useState({ name:'', professionalId: me.id, totalSessions: 10 })
   const [dtOpen, setDtOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
-  useEffect(()=>{ if (users.length && !selectedUserId) setSelectedUserId(users[0].id) }, [users])
+  // --- helper export CSV (apribile in Excel) ---
+  function toCSVValue(v){ if(v==null) return '""'; const s=String(v).replace(/"/g,'""'); return `"${s}"` }
+  function downloadCSV(rows, filename){
+    const header = Object.keys(rows[0] || {Placeholder:''})
+    const lines = [header.join(',')]
+    for(const r of rows){ lines.push(header.map(k=>toCSVValue(r[k])).join(',')) }
+    const blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8;'})
+    const url = URL.createObjectURL(blob); const a=document.createElement('a')
+    a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+  function buildExportRows(sourceUsers){
+    const rows = []
+    for(const u of sourceUsers){
+      const percs = u.percorsi || []
+      if(!percs.length){
+        rows.push({
+          'Utente': u.fullName, 'Email': u.email||'', 'Telefono': u.phone||'', 'Codice': u.code,
+          'Percorso': '', 'Professionista': '', 'Totale incontri': '', 'Residuo': '',
+          'Prossimo incontro': '', 'N. pianificati': 0, 'N. svolti': 0, 'Ultimo svolto': ''
+        })
+        continue
+      }
+      for(const p of percs){
+        const pro = pros.find(pr => pr.id === p.professionalId)
+        const planned = p.sessions || []
+        const history = p.history || []
+        const next = planned[0]?.datetimeISO || ''
+        const last = history[0]?.datetimeISO || ''
+        rows.push({
+          'Utente': u.fullName, 'Email': u.email||'', 'Telefono': u.phone||'', 'Codice': u.code,
+          'Percorso': p.name, 'Professionista': pro?.name || '',
+          'Totale incontri': p.totalSessions, 'Residuo': p.remainingSessions,
+          'Prossimo incontro': next ? fmtIt(next) : '',
+          'N. pianificati': planned.length, 'N. svolti': history.length,
+          'Ultimo svolto': last ? fmtIt(last) : ''
+        })
+      }
+    }
+    return rows
+  }
 
   return (
     <div className="space-y-6">
+      {/* header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold">Area Professionisti</h2>
-          <span className="inline-flex items-center gap-2 text-sm text-gray-600"><span className="inline-block w-3 h-3 rounded-full" style={{ background: me.color }} />{me.name}</span>
+          <span className="inline-flex items-center gap-2 text-sm text-gray-600">
+            <span className="inline-block w-3 h-3 rounded-full" style={{ background: me.color }} />
+            {me.name}
+          </span>
         </div>
-        <div className="flex gap-2"><Button variant="ghost" onClick={onBack}>Indietro</Button><Button variant="ghost" onClick={onLogout}>Esci</Button></div>
+        <div className="flex gap-2">
+          {/* nuovo toggle filtro */}
+          <Button variant="ghost" onClick={()=> setShowAll(s=>!s)}>
+            {showAll ? 'Vedi solo i miei utenti' : 'Vedi tutti gli utenti'}
+          </Button>
+          {/* export */}
+          <div className="relative">
+            <Button onClick={()=> setExportOpen(o=>!o)}>Esporta Excel</Button>
+            {exportOpen && (
+              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-white shadow p-2 z-10">
+                <div className="text-xs text-gray-500 px-1 pb-1">Scegli cosa esportare</div>
+                <div className="flex flex-col gap-2">
+                  <Button variant="ghost" onClick={()=>{
+                    const mine = users.filter(u => (u.percorsi||[]).some(p => p.professionalId === me.id))
+                    const rows = buildExportRows(mine)
+                    downloadCSV(rows, `utenti_${me.name.replace(/\s+/g,'_')}.csv`)
+                    setExportOpen(false)
+                  }}>Solo miei utenti</Button>
+                  <Button variant="ghost" onClick={()=>{
+                    const rows = buildExportRows(users)
+                    downloadCSV(rows, `utenti_tutti.csv`)
+                    setExportOpen(false)
+                  }}>Tutti gli utenti</Button>
+                </div>
+              </div>
+            )}
+          </div>
+          <Button variant="ghost" onClick={onBack}>Indietro</Button>
+          <Button variant="ghost" onClick={onLogout}>Esci</Button>
+        </div>
       </div>
 
+      {/* crea/gestisci utente (rimosse spunte promemoria) */}
       <Card accent={me.color}>
         <h3 className="text-lg font-semibold mb-3">Crea/gestisci utenti</h3>
         <div className="grid md:grid-cols-3 gap-3">
-          <Field label="Nome e Cognome"><input className="rounded-xl border p-2" value={userForm.fullName} onChange={(e)=>setUserForm({...userForm, fullName:e.target.value})} /></Field>
-          <Field label="Cellulare"><input className="rounded-xl border p-2" value={userForm.phone} onChange={(e)=>setUserForm({...userForm, phone:e.target.value})} /></Field>
-          <Field label="Mail"><input type="email" className="rounded-xl border p-2" value={userForm.email} onChange={(e)=>setUserForm({...userForm, email:e.target.value})} /></Field>
+          <Field label="Nome e Cognome">
+            <input className="rounded-xl border p-2"
+                   value={userForm.fullName}
+                   onChange={(e)=>setUserForm({...userForm, fullName:e.target.value})} />
+          </Field>
+          <Field label="Cellulare">
+            <input className="rounded-xl border p-2"
+                   value={userForm.phone}
+                   onChange={(e)=>setUserForm({...userForm, phone:e.target.value})} />
+          </Field>
+          <Field label="Mail">
+            <input type="email" className="rounded-xl border p-2"
+                   value={userForm.email}
+                   onChange={(e)=>setUserForm({...userForm, email:e.target.value})} />
+          </Field>
         </div>
-        <div className="mt-3 grid md:grid-cols-2 gap-3">
-          <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={userForm.notificationEmail} onChange={(e)=> setUserForm({...userForm, notificationEmail: e.target.checked})} /> Promemoria email 24h prima</label>
-          <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={userForm.notificationSms} onChange={(e)=> setUserForm({...userForm, notificationSms: e.target.checked})} /> Promemoria SMS 24h prima</label>
+        <div className="mt-3">
+          <Button onClick={()=>{
+            if (!userForm.fullName.trim()) return alert('Inserisci il nome completo')
+            const u = onCreateUser(userForm)
+            setSelectedUserId(u.id)
+            setUserForm({ fullName:'', phone:'', email:'' })
+          }}>Crea utente</Button>
         </div>
-        <div className="mt-3"><Button onClick={()=>{
-          if (!userForm.fullName.trim()) return alert('Inserisci il nome completo')
-          const u = onCreateUser(userForm); setSelectedUserId(u.id); setUserForm({ fullName:'', phone:'', email:'', notificationEmail:true, notificationSms:false })
-        }}>Crea utente</Button></div>
       </Card>
 
       <div className="grid md:grid-cols-2 gap-6">
         <Card accent={me.color}>
-          <h3 className="text-lg font-semibold mb-3">Tutti gli utenti</h3>
+          <h3 className="text-lg font-semibold mb-3">
+            {showAll ? 'Tutti gli utenti' : 'I miei utenti'}
+          </h3>
           <div className="space-y-2">
-            {users.map(u => (
+            {visibleUsers.map(u => (
               <div key={u.id} className={"rounded-xl border p-3 " + (selectedUserId===u.id ? 'bg-slate-50':'')}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
@@ -539,16 +647,21 @@ function ProDashboard({ pros, me, users, onLogout, onCreateUser, onDeleteUser, o
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {u.percorsi.map(p=>{ const pro = pros.find(pr => pr.id === p.professionalId); return <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: pro?.color, color: pro?.color }}>{p.name}</span> })}
+                  {(u.percorsi||[]).map(p=>{
+                    const pro = pros.find(pr => pr.id === p.professionalId);
+                    return <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: pro?.color, color: pro?.color }}>{p.name}</span>
+                  })}
                 </div>
               </div>
             ))}
-            {users.length===0 && <div className="text-sm text-gray-500">Nessun utente. Creane uno sopra.</div>}
+            {visibleUsers.length===0 && <div className="text-sm text-gray-500">Nessun utente.</div>}
           </div>
         </Card>
 
         <Card accent={me.color}>
-          {!selectedUser ? (<div className="text-sm text-gray-500">Seleziona un utente.</div>) : (
+          {!selectedUser ? (
+            <div className="text-sm text-gray-500">Seleziona un utente.</div>
+          ) : (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">{selectedUser.fullName}</h3>
@@ -559,29 +672,47 @@ function ProDashboard({ pros, me, users, onLogout, onCreateUser, onDeleteUser, o
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-3">
-                <Field label="Mail"><input type="email" className="rounded-xl border p-2" value={selectedUser.email} onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })} /></Field>
-                <Field label="Cellulare"><input className="rounded-xl border p-2" value={selectedUser.phone} onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })} /></Field>
-                <div className="flex items-end gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={selectedUser.notificationEmail||false} onChange={(e)=> onUpdateUser({ ...selectedUser, notificationEmail: e.target.checked })} /> Email 24h</label>
-                  <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={selectedUser.notificationSms||false} onChange={(e)=> onUpdateUser({ ...selectedUser, notificationSms: e.target.checked })} /> SMS 24h</label>
-                </div>
+              <div className="grid md:grid-cols-2 gap-3">{/* <-- 2 colonne, rimosse spunte promemoria */}
+                <Field label="Mail">
+                  <input type="email" className="rounded-xl border p-2"
+                         value={selectedUser.email}
+                         onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })} />
+                </Field>
+                <Field label="Cellulare">
+                  <input className="rounded-xl border p-2"
+                         value={selectedUser.phone}
+                         onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })} />
+                </Field>
               </div>
 
               <div className="border-t pt-3">
                 <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
                 <div className="grid md:grid-cols-4 gap-3 mb-3">
-                  <Field label="Nome percorso"><input className="rounded-xl border p-2" value={percForm.name} onChange={(e)=>setPercForm({...percForm, name:e.target.value})} placeholder="Es. Logopedia" /></Field>
+                  <Field label="Nome percorso">
+                    <input className="rounded-xl border p-2"
+                           value={percForm.name}
+                           onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
+                           placeholder="Es. Logopedia" />
+                  </Field>
                   <Field label="Professionista">
-                    <select className="rounded-xl border p-2" value={percForm.professionalId} onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
+                    <select className="rounded-xl border p-2"
+                            value={percForm.professionalId}
+                            onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
                       {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </Field>
-                  <Field label="Numero di incontri (totale)"><input type="number" className="rounded-xl border p-2" value={percForm.totalSessions} onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} /></Field>
-                  <div className="flex items-end"><Button onClick={()=>{
-                    if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
-                    onAddPercorso(selectedUser.id, percForm); setPercForm({ name:'', professionalId: percForm.professionalId, totalSessions: 10 })
-                  }}>Aggiungi percorso</Button></div>
+                  <Field label="Numero di incontri (totale)">
+                    <input type="number" className="rounded-xl border p-2"
+                           value={percForm.totalSessions}
+                           onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} />
+                  </Field>
+                  <div className="flex items-end">
+                    <Button onClick={()=>{
+                      if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
+                      onAddPercorso(selectedUser.id, percForm)
+                      setPercForm({ name:'', professionalId: percForm.professionalId, totalSessions: 10 })
+                    }}>Aggiungi percorso</Button>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -590,7 +721,10 @@ function ProDashboard({ pros, me, users, onLogout, onCreateUser, onDeleteUser, o
                     return (
                       <div key={percorso.id} className="rounded-xl border p-3" style={{ borderColor: pro?.color }}>
                         <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full" style={{ background: pro?.color }} /><div className="font-medium">{percorso.name}</div></div>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-block w-3 h-3 rounded-full" style={{ background: pro?.color }} />
+                            <div className="font-medium">{percorso.name}</div>
+                          </div>
                           <div className="text-xs text-gray-500">Residuo {percorso.remainingSessions}/{percorso.totalSessions}</div>
                         </div>
 
