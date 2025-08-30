@@ -520,45 +520,76 @@ function ProDashboard({
   const [dtOpen, setDtOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
 
-  // --- helper export CSV (apribile in Excel) ---
-  function toCSVValue(v){ if(v==null) return '""'; const s=String(v).replace(/"/g,'""'); return `"${s}"` }
-  function downloadCSV(rows, filename){
-    const header = Object.keys(rows[0] || {Placeholder:''})
-    const lines = [header.join(',')]
-    for(const r of rows){ lines.push(header.map(k=>toCSVValue(r[k])).join(',')) }
-    const blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8;'})
-    const url = URL.createObjectURL(blob); const a=document.createElement('a')
-    a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
-  function buildExportRows(sourceUsers){
+ // --- EXPORT: una riga per utente (aggregazioni), XLSX e PDF ---
+  function buildUserRowsSingle(usersSource) {
     const rows = []
-    for(const u of sourceUsers){
+    for (const u of usersSource) {
       const percs = u.percorsi || []
-      if(!percs.length){
-        rows.push({
-          'Utente': u.fullName, 'Email': u.email||'', 'Telefono': u.phone||'', 'Codice': u.code,
-          'Percorso': '', 'Professionista': '', 'Totale incontri': '', 'Residuo': '',
-          'Prossimo incontro': '', 'N. pianificati': 0, 'N. svolti': 0, 'Ultimo svolto': ''
-        })
-        continue
-      }
-      for(const p of percs){
-        const pro = pros.find(pr => pr.id === p.professionalId)
-        const planned = p.sessions || []
-        const history = p.history || []
-        const next = planned[0]?.datetimeISO || ''
-        const last = history[0]?.datetimeISO || ''
-        rows.push({
-          'Utente': u.fullName, 'Email': u.email||'', 'Telefono': u.phone||'', 'Codice': u.code,
-          'Percorso': p.name, 'Professionista': pro?.name || '',
-          'Totale incontri': p.totalSessions, 'Residuo': p.remainingSessions,
-          'Prossimo incontro': next ? fmtIt(next) : '',
-          'N. pianificati': planned.length, 'N. svolti': history.length,
-          'Ultimo svolto': last ? fmtIt(last) : ''
-        })
-      }
+      const percorsiNames = percs.map(p => p.name).join(' | ')
+      const professionals = Array.from(
+        new Set(
+          percs
+            .map(p => pros.find(pr => pr.id === p.professionalId)?.name)
+            .filter(Boolean)
+        )
+      ).join(' | ')
+      const totTot = percs.reduce((s,p)=> s + (Number(p.totalSessions)||0), 0)
+      const totRem = percs.reduce((s,p)=> s + (Number(p.remainingSessions)||0), 0)
+      const plannedCount = percs.reduce((s,p)=> s + ((p.sessions||[]).length), 0)
+      const historyCount = percs.reduce((s,p)=> s + ((p.history||[]).length), 0)
+
+      const nextDates = percs.flatMap(p => (p.sessions||[]).map(s => s.datetimeISO))
+      const lastDates = percs.flatMap(p => (p.history||[]).map(h => h.datetimeISO))
+      const nextISO = nextDates.length ? nextDates.sort((a,b)=> new Date(a)-new Date(b))[0] : ''
+      const lastISO = lastDates.length ? lastDates.sort((a,b)=> new Date(b)-new Date(a))[0] : ''
+
+      rows.push({
+        'Utente': u.fullName,
+        'Email': u.email || '',
+        'Telefono': u.phone || '',
+        'Codice': u.code,
+        'Percorsi': percorsiNames,
+        'Professionisti': professionals,
+        'Totale incontri': totTot,
+        'Residuo': totRem,
+        'N. pianificati': plannedCount,
+        'N. svolti': historyCount,
+        'Prossimo incontro': nextISO ? fmtIt(nextISO) : '',
+        'Ultimo svolto': lastISO ? fmtIt(lastISO) : ''
+      })
     }
     return rows
+  }
+
+  async function exportXLSX(rows, filename = 'utenti.xlsx') {
+    if (!rows.length) { alert('Nessun dato da esportare'); return }
+    const XLSX = await import('xlsx')
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(rows)
+    // larghezze colonna sensate
+    ws['!cols'] = Object.keys(rows[0]).map(k => ({ wch: Math.max(16, k.length) }))
+    XLSX.utils.book_append_sheet(wb, ws, 'Utenti')
+    XLSX.writeFile(wb, filename)
+  }
+
+  async function exportPDF(rows, filename = 'utenti.pdf') {
+    if (!rows.length) { alert('Nessun dato da esportare'); return }
+    const { default: jsPDF } = await import('jspdf')
+    const autoTable = (await import('jspdf-autotable')).default
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'A4' })
+    const head = [Object.keys(rows[0])]
+    const body = rows.map(r => Object.values(r))
+    autoTable(doc, {
+      head, body,
+      styles: { fontSize: 8, cellPadding: 4 },
+      margin: { top: 40, bottom: 30 },
+      didDrawPage: () => {
+        doc.setFontSize(10)
+        doc.text('Esportazione utenti - ApprendiMente', 40, 24)
+        doc.text(new Date().toLocaleString('it-IT'), doc.internal.pageSize.getWidth() - 160, 24)
+      }
+    })
+    doc.save(filename)
   }
 
   return (
@@ -578,31 +609,44 @@ function ProDashboard({
             {showAll ? 'Vedi solo i miei utenti' : 'Vedi tutti gli utenti'}
           </Button>
           {/* export */}
-          <div className="relative">
-            <Button onClick={()=> setExportOpen(o=>!o)}>Esporta Excel</Button>
+                   <div className="relative">
+            <Button onClick={()=> setExportOpen(o=>!o)}>Esporta</Button>
             {exportOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-white shadow p-2 z-10">
-                <div className="text-xs text-gray-500 px-1 pb-1">Scegli cosa esportare</div>
+              <div className="absolute right-0 mt-2 w-64 rounded-xl border bg-white shadow p-2 z-10">
+                <div className="text-xs text-gray-500 px-1 pb-2">Formato e dataset</div>
                 <div className="flex flex-col gap-2">
-                  <Button variant="ghost" onClick={()=>{
+                  <Button variant="ghost" onClick={async ()=>{
                     const mine = users.filter(u => (u.percorsi||[]).some(p => p.professionalId === me.id))
-                    const rows = buildExportRows(mine)
-                    downloadCSV(rows, `utenti_${me.name.replace(/\s+/g,'_')}.csv`)
+                    const rows = buildUserRowsSingle(mine)
+                    await exportXLSX(rows, `utenti_${me.name.replace(/\s+/g,'_')}.xlsx`)
                     setExportOpen(false)
-                  }}>Solo miei utenti</Button>
-                  <Button variant="ghost" onClick={()=>{
-                    const rows = buildExportRows(users)
-                    downloadCSV(rows, `utenti_tutti.csv`)
+                  }}>XLSX — Solo miei utenti</Button>
+
+                  <Button variant="ghost" onClick={async ()=>{
+                    const rows = buildUserRowsSingle(users)
+                    await exportXLSX(rows, `utenti_tutti.xlsx`)
                     setExportOpen(false)
-                  }}>Tutti gli utenti</Button>
+                  }}>XLSX — Tutti gli utenti</Button>
+
+                  <div className="h-px bg-gray-200 my-1" />
+
+                  <Button variant="ghost" onClick={async ()=>{
+                    const mine = users.filter(u => (u.percorsi||[]).some(p => p.professionalId === me.id))
+                    const rows = buildUserRowsSingle(mine)
+                    await exportPDF(rows, `utenti_${me.name.replace(/\s+/g,'_')}.pdf`)
+                    setExportOpen(false)
+                  }}>PDF — Solo miei utenti</Button>
+
+                  <Button variant="ghost" onClick={async ()=>{
+                    const rows = buildUserRowsSingle(users)
+                    await exportPDF(rows, `utenti_tutti.pdf`)
+                    setExportOpen(false)
+                  }}>PDF — Tutti gli utenti</Button>
                 </div>
               </div>
             )}
           </div>
-          <Button variant="ghost" onClick={onBack}>Indietro</Button>
-          <Button variant="ghost" onClick={onLogout}>Esci</Button>
-        </div>
-      </div>
+
 
       {/* crea/gestisci utente (rimosse spunte promemoria) */}
       <Card accent={me.color}>
