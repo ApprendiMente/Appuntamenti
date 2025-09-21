@@ -95,17 +95,12 @@ useEffect(() => {
   } catch {}
 }, [currentProId])
   const [currentUserId, setCurrentUserId] = useState(null)
-const [hydrated, setHydrated] = useState(false)
-const initialPros = useRef(pros)
-const initialUsers = useRef(users)
 
 const [deletedUsers, setDeletedUsers] = useState(() => loadLS(LS.deleted, []))
 useEffect(() => saveLS(LS.deleted, deletedUsers), [deletedUsers])
 
 
 // NEW: controllo consistenza / versionamento
-const [rev, setRev] = useState(0)
-const lastAppliedRef = useRef(null) // { pros: [...], users: [...] } ultimo snapshot remoto applicato
 
   useEffect(() => saveLS(LS.pros, pros), [pros])
   useEffect(() => saveLS(LS.users, users), [users])
