@@ -263,7 +263,7 @@ function restoreDeletedUser(userId) {
   })
 }
 
-  function addPercorso(userId, { name, professionalId, totalSessions, deadlineISO, paid }) {
+function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, paid }) {
   setUsers(prev => prev.map(u => {
     if (u.id !== userId) return u
     const p = {
@@ -274,12 +274,13 @@ function restoreDeletedUser(userId) {
       remainingSessions: Number(totalSessions) || 0,
       sessions: [],
       history: [],
-      deadlineISO: deadlineISO || '',
+      expiryYMD: expiryYMD || '',
       paid: !!paid
     }
-    return { ...u, percorsi: [...u.percorsi, p] }
+    return { ...u, percorsi: [...(u.percorsi || []), p] }
   }))
 }
+
 
   function planSession(userId, percorsoId, iso) {
     setUsers(prev => prev.map(u => {
@@ -325,6 +326,14 @@ function restoreDeletedUser(userId) {
     }))
   }
   function regenerateCode(userId) { const code = generateUniqueCode(); setUsers(prev => prev.map(u => u.id === userId ? { ...u, code } : u )) }
+
+  function updatePercorso(userId, percorsoId, partial) {
+  setUsers(prev => prev.map(u => {
+    if (u.id !== userId) return u
+    const percorsi = (u.percorsi || []).map(p => p.id === percorsoId ? { ...p, ...partial } : p)
+    return { ...u, percorsi }
+  }))
+}
 
   
   // --- injected: professional update/delete and deleteHistorySession ---
@@ -632,7 +641,10 @@ function ProDashboard({
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
 
   // form percorso (scadenza + saldato)
-  const [percForm, setPercForm] = useState({ name:'', professionalId: me.id, totalSessions: 10, deadlineISO:'', paid:false })
+const [percForm, setPercForm] = useState({
+  name:'', professionalId: me.id, totalSessions: 10,
+  expiryYMD:'', paid:false
+})
   const [dtOpen, setDtOpen] = useState(false)
 
   // export UI già presente altrove: lasciamo stare
@@ -711,9 +723,9 @@ function ProDashboard({
               <div className="text-sm font-medium mb-2">Legenda professionisti</div>
               <div className="flex flex-wrap gap-2">
                 {pros.map(p => (
-                  <span key={p.id} className="inline-flex items-center gap-2 text-xs border rounded-full px-2 py-1"
+                  <span key={p.id} className="inline-flex items-center gap-2 text-xs border-2 rounded-full px-2 py-1"
                         style={{ borderColor: p.color }}>
-                    <span className="w-3 h-3 rounded-full" style={{ background: p.color }} />
+                    <span className="w-4 h-4 rounded-full" style={{ background: p.color }} />
                     {p.name}
                   </span>
                 ))}
@@ -721,8 +733,8 @@ function ProDashboard({
             </div>
           </Card>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card accent={me.color}>
+          <div className="grid md:grid-cols-3 gap-6">
+<Card accent={me.color} className="md:col-span-1">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold">{showAll ? 'Tutti gli utenti' : 'I miei utenti'}</h3>
                 <div className="w-56">
@@ -757,8 +769,8 @@ function ProDashboard({
               </div>
             </Card>
 
-            <Card accent={me.color}>
-              {!selectedUser ? (
+<Card accent={me.color} className="md:col-span-2">
+                {!selectedUser ? (
                 <div className="text-sm text-gray-500">Seleziona un utente.</div>
               ) : (
                 <div className="space-y-4">
@@ -794,61 +806,60 @@ function ProDashboard({
 
                   <div className="border-t pt-3">
                     <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
-                    <div className="grid md:grid-cols-4 gap-3 mb-3">
-                      <Field label="Nome percorso">
-                        <input className="rounded-xl border p-2"
-                               value={percForm.name}
-                               onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
-                               placeholder="Es. Logopedia" />
-                      </Field>
-                      <Field label="Professionista">
-                        <select className="rounded-xl border p-2"
-                                value={percForm.professionalId}
-                                onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
-                          {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="Numero di incontri (totale)">
-                        <input type="number" className="rounded-xl border p-2"
-                               value={percForm.totalSessions}
-                               onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} />
-                      </Field>
-                      <div className="flex items-end">
-                        <Button onClick={()=>{
-                          if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
-                          onAddPercorso(selectedUser.id, percForm)
-                          setPercForm({ name:'', professionalId: percForm.professionalId, totalSessions: 10, deadlineISO:'', paid:false })
-                        }}>Aggiungi percorso</Button>
-                      </div>
+                    <div className="grid md:grid-cols-5 gap-3 mb-3">
+  <Field label="Nome percorso">
+    <input className="rounded-xl border p-2"
+           value={percForm.name}
+           onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
+           placeholder="Es. Logopedia" />
+  </Field>
 
-                      {/* Scadenza + Saldato */}
-                      <Field label="Scadenza percorso (calendario)">
-                        <input type="date" className="rounded-xl border p-2"
-                               value={percForm.deadlineISO ? new Date(percForm.deadlineISO).toISOString().slice(0,10) : ''}
-                               onChange={(e)=> setPercForm({...percForm, deadlineISO: isoFromAnyDate(e.target.value)})} />
-                      </Field>
-                      <Field label="Oppure scrivi (gg-mm-aa)">
-                        <input className="rounded-xl border p-2" placeholder="gg-mm-aa"
-                               onBlur={(e)=> {
-                                 const iso = isoFromAnyDate(e.target.value)
-                                 if (iso) setPercForm({...percForm, deadlineISO: iso})
-                               }} />
-                      </Field>
-                      <label className="inline-flex items-center gap-2 text-sm mt-6">
-                        <input type="checkbox" checked={!!percForm.paid}
-                               onChange={(e)=> setPercForm({...percForm, paid: e.target.checked})} />
-                        Percorso saldato
-                      </label>
-                    </div>
+  <Field label="Professionista">
+    <select className="rounded-xl border p-2"
+            value={percForm.professionalId}
+            onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
+      {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+  </Field>
+
+  <Field label="Numero di incontri (totale)">
+    <input type="number" className="rounded-xl border p-2"
+           value={percForm.totalSessions}
+           onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} />
+  </Field>
+
+  <Field label="Scadenza percorso">
+    <input type="date" className="rounded-xl border p-2"
+           value={percForm.expiryYMD}
+           onChange={(e)=>setPercForm({...percForm, expiryYMD: e.target.value})} />
+  </Field>
+
+  <div className="flex items-end">
+    <label className="inline-flex items-center gap-2 text-sm">
+      <input type="checkbox"
+             checked={percForm.paid}
+             onChange={(e)=> setPercForm({...percForm, paid: e.target.checked})} />
+      Percorso saldato
+    </label>
+  </div>
+</div>
+
+<div className="flex items-end">
+  <Button onClick={()=>{
+    if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
+    onAddPercorso(selectedUser.id, percForm)
+    setPercForm({ name:'', professionalId: percForm.professionalId, totalSessions: 10, expiryYMD:'', paid:false })
+  }}>Aggiungi percorso</Button>
+</div>
 
                     <div className="space-y-4">
                       {selectedUser.percorsi.map(percorso => {
                         const pro = pros.find(pr => pr.id === percorso.professionalId)
                         return (
-                          <div key={percorso.id} className="rounded-xl border p-3" style={{ borderColor: pro?.color }}>
+                          <div key={percorso.id} className="rounded-xl border-2 p-3" style={{ borderColor: pro?.color }}>
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
-                                <span className="inline-block w-3 h-3 rounded-full" style={{ background: pro?.color }} />
+                                <span className="inline-block w-4 h-4 rounded-full" style={{ background: pro?.color }} />
                                 <div className="font-medium">{percorso.name}</div>
                               </div>
                               <div className="text-xs text-gray-500">Residuo {percorso.remainingSessions}/{percorso.totalSessions}</div>
@@ -858,6 +869,22 @@ function ProDashboard({
                               Scadenza percorso: <span className="font-medium">{percorso.deadlineISO ? fmtItDateOnly(percorso.deadlineISO) : '-'}</span> •
                               <span className="ml-2 font-medium">{percorso.paid ? 'Percorso saldato' : 'Percorso da saldare'}</span>
                             </div>
+
+<div className="mt-2 grid md:grid-cols-3 gap-3">
+  <Field label="Scadenza percorso">
+    <input type="date" className="rounded-xl border p-2"
+           value={percorso.expiryYMD || ''}
+           onChange={(e)=> updatePercorso(selectedUser.id, percorso.id, { expiryYMD: e.target.value })} />
+  </Field>
+  <div className="flex items-end">
+    <label className="inline-flex items-center gap-2 text-sm">
+      <input type="checkbox"
+             checked={!!percorso.paid}
+             onChange={(e)=> updatePercorso(selectedUser.id, percorso.id, { paid: e.target.checked })} />
+      Percorso saldato
+    </label>
+  </div>
+</div>
 
                             <div className="mt-3">
                               <Button onClick={()=> setDtOpen(true)}>Scegli data/ora</Button>
@@ -988,7 +1015,7 @@ function UserDashboard({ pros, user, onBack }) {
             <Card key={percorso.id} accent={pro?.color}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: pro?.color }} />
+                  <span className="inline-block w-4 h-4 rounded-full" style={{ background: pro?.color }} />
                   <h3 className="text-lg font-semibold">{percorso.name}</h3>
                 </div>
                 <div className="text-xs text-gray-500">Residuo {percorso.remainingSessions}/{percorso.totalSessions}</div>
