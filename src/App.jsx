@@ -600,8 +600,26 @@ function ProDashboard({
   onLogout, onCreateUser, onDeleteUser, onUpdateUser,
   onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned, onRegenerateCode,
   onBack , onDeleteHistory,
-  deletedUsers, onRestoreUser
+  deletedUsers = [], onRestoreUser
 }) {
+  // --- helper locali (fallback sicuri) ---
+  const splitName = (full='') => {
+    const parts = String(full).trim().split(/\s+/)
+    if (parts.length === 0) return { first:'', last:'' }
+    if (parts.length === 1) return { first:parts[0], last:'' }
+    const last = parts.pop()
+    const first = parts.join(' ')
+    return { first, last }
+  }
+  const displaySurnameFirst = (full='') => {
+    const { first, last } = splitName(full)
+    return [last, first].filter(Boolean).join(' ')
+  }
+  const fmtYMDtoIt = (ymd) => {
+    if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '-'
+    return `${ymd.slice(8,10)}-${ymd.slice(5,7)}-${ymd.slice(2,4)}`
+  }
+
   // vista: lista vs cestino
   const [view, setView] = useState('list') // 'list' | 'trash'
 
@@ -617,10 +635,10 @@ function ProDashboard({
     const needle = q.trim().toLowerCase()
     const rows = baseUsers.map(u => {
       const { first, last } = splitName(u.fullName)
-      const key = `${last.toLowerCase()} ${first.toLowerCase()}`
+      const key = `${(last||'').toLowerCase()} ${(first||'').toLowerCase()}`
       const shown = displaySurnameFirst(u.fullName)
       const codeStr = String(u.code || '')
-      const match = !needle || last.toLowerCase().includes(needle) || codeStr.includes(needle)
+      const match = !needle || (last||'').toLowerCase().includes(needle) || codeStr.includes(needle)
       return { u, key, shown, codeStr, match }
     }).filter(r => r.match)
       .sort((a,b) => a.key.localeCompare(b.key, 'it'))
@@ -641,13 +659,18 @@ function ProDashboard({
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
 
   // form percorso (scadenza + saldato)
-const [percForm, setPercForm] = useState({
-  name:'', professionalId: me.id, totalSessions: 10,
-  expiryYMD:'', paid:false
-})
+  const [percForm, setPercForm] = useState({
+    name:'', professionalId: me.id, totalSessions: 10,
+    expiryYMD:'', paid:false
+  })
   const [dtOpen, setDtOpen] = useState(false)
 
-  // export UI già presente altrove: lasciamo stare
+  // aggiorna un percorso dell'utente selezionato (inline, senza prop extra)
+  const updatePercorsoInline = (userId, percorsoId, patch) => {
+    const u = users.find(x => x.id === userId); if (!u) return
+    const nextPercorsi = (u.percorsi || []).map(p => p.id === percorsoId ? { ...p, ...patch } : p)
+    onUpdateUser({ ...u, percorsi: nextPercorsi })
+  }
 
   return (
     <div className="space-y-6">
@@ -680,11 +703,16 @@ const [percForm, setPercForm] = useState({
             {deletedUsers.map(u => (
               <div key={u.id} className="rounded-xl border p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="font-medium truncate">{displaySurnameFirst(u.fullName)} <span className="text-xs text-gray-500">({u.code})</span></div>
-                  <div className="text-xs text-gray-500">Eliminato il {fmtItDateOnly(u.deletedAt)} alle {new Date(u.deletedAt).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</div>
+                  <div className="font-medium truncate">
+                    {displaySurnameFirst(u.fullName)} <span className="text-xs text-gray-500">({u.code})</span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Eliminato il {fmtYMDtoIt(u.deletedAt?.slice?.(0,10) || '')}{' '}
+                    alle {u.deletedAt ? new Date(u.deletedAt).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) : '--:--'}
+                  </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <Button onClick={()=> onRestoreUser(u.id)}>Ripristina</Button>
+                  <Button onClick={()=> onRestoreUser && onRestoreUser(u.id)}>Ripristina</Button>
                 </div>
               </div>
             ))}
@@ -697,15 +725,18 @@ const [percForm, setPercForm] = useState({
             <h3 className="text-lg font-semibold mb-3">Crea/gestisci utenti</h3>
             <div className="grid md:grid-cols-3 gap-3">
               <Field label="Nome e Cognome">
-                <input className="rounded-xl border p-2" value={userForm.fullName}
+                <input className="rounded-xl border p-2"
+                  value={userForm.fullName}
                   onChange={(e)=>setUserForm({...userForm, fullName:e.target.value})} />
               </Field>
               <Field label="Cellulare">
-                <input className="rounded-xl border p-2" value={userForm.phone}
+                <input className="rounded-xl border p-2"
+                  value={userForm.phone}
                   onChange={(e)=>setUserForm({...userForm, phone:e.target.value})} />
               </Field>
               <Field label="Mail">
-                <input type="email" className="rounded-xl border p-2" value={userForm.email}
+                <input type="email" className="rounded-xl border p-2"
+                  value={userForm.email}
                   onChange={(e)=>setUserForm({...userForm, email:e.target.value})} />
               </Field>
             </div>
@@ -733,210 +764,231 @@ const [percForm, setPercForm] = useState({
             </div>
           </Card>
 
-{/* === WRAPPER 30/70 START === */}
-<div className="grid grid-cols-1 md:grid-cols-10 gap-6">
-  {/* Colonna UTENTI – 30% */}
-  <div className="md:col-span-3">
-    <Card accent={me.color}>
-      {/* --- QUI rimane il contenuto della tua Card “Tutti gli utenti / I miei utenti” --- */}
-    </Card>
-  </div>
+          {/* === WRAPPER 30/70 START === */}
+          <div className="grid grid-cols-1 md:grid-cols-10 gap-6">
+            {/* Colonna UTENTI – 30% */}
+            <div className="md:col-span-3">
+              <Card accent={me.color}>
+                <h3 className="text-lg font-semibold mb-3">
+                  {showAll ? 'Tutti gli utenti' : 'I miei utenti'}
+                </h3>
 
-  {/* Colonna PERCORSI – 70% */}
-  <div className="md:col-span-7">
-    <Card accent={me.color}>
-      {/* --- QUI rimane il contenuto della tua Card dettagli utente + percorsi --- */}
-    </Card>
-  </div>
-</div>
-{/* === WRAPPER 30/70 END === */}
-              <div className="space-y-2">
-                {prepared.map(r => (
-                  <div key={r.u.id} className={"rounded-xl border p-3 " + (selectedUserId===r.u.id ? 'bg-slate-50':'')}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{r.shown}</div>
-                        <div className="text-xs text-gray-500">Codice: <span className="font-mono">{r.codeStr}</span></div>
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        <Button variant="ghost" onClick={()=> setSelectedUserId(r.u.id)}>Apri</Button>
-                        <Button variant="danger" onClick={()=>{ if (confirm(`Confermi l'eliminazione dell'utente?`)) onDeleteUser(r.u.id) }}>Elimina</Button>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {(r.u.percorsi||[]).map(p=>{
-                        const pro = pros.find(pr => pr.id === p.professionalId)
-                        return <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full border-2" style={{ borderColor: pro?.color, color: pro?.color }}>{p.name}</span>
-                      })}
-                    </div>
-                  </div>
-                ))}
-                {prepared.length===0 && <div className="text-sm text-gray-500">Nessun utente.</div>}
-              </div>
-            </Card>
-
-<Card accent={me.color} className="md:col-span-2">
-                {!selectedUser ? (
-                <div className="text-sm text-gray-500">Seleziona un utente.</div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">{displaySurnameFirst(selectedUser.fullName)}</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">Codice</span>
-                      <input className="rounded-xl border p-2 font-mono w-28 text-center" value={selectedUser.code} readOnly />
-                      <Button variant="ghost" onClick={()=> onRegenerateCode(selectedUser.id)}>Rigenera</Button>
-                      <Button variant="ghost" onClick={()=>{
-                        const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
-                        if (v==null) return
-                        if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
-                        if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
-                        onUpdateUser({ ...selectedUser, code: v })
-                      }}>Modifica</Button>
-                    </div>
-                  </div>
-
-                  {/* campi base utente (email/telefono restano qui nella vista professionista) */}
-                  <div className="grid md:grid-cols-2 gap-3">
-                    <Field label="Mail">
-                      <input type="email" className="rounded-xl border p-2"
-                             value={selectedUser.email || ''}
-                             onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })} />
-                    </Field>
-                    <Field label="Cellulare">
-                      <input className="rounded-xl border p-2"
-                             value={selectedUser.phone || ''}
-                             onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })} />
-                    </Field>
-                  </div>
-
-                  <div className="border-t pt-3">
-                    <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
-                    <div className="grid md:grid-cols-5 gap-3 mb-3">
-  <Field label="Nome percorso">
-    <input className="rounded-xl border p-2"
-           value={percForm.name}
-           onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
-           placeholder="Es. Logopedia" />
-  </Field>
-
-  <Field label="Professionista">
-    <select className="rounded-xl border p-2"
-            value={percForm.professionalId}
-            onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
-      {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
-  </Field>
-
-  <Field label="Numero di incontri (totale)">
-    <input type="number" className="rounded-xl border p-2"
-           value={percForm.totalSessions}
-           onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} />
-  </Field>
-
-  <Field label="Scadenza percorso">
-    <input type="date" className="rounded-xl border p-2"
-           value={percForm.expiryYMD}
-           onChange={(e)=>setPercForm({...percForm, expiryYMD: e.target.value})} />
-  </Field>
-
-  <div className="flex items-end">
-    <label className="inline-flex items-center gap-2 text-sm">
-      <input type="checkbox"
-             checked={percForm.paid}
-             onChange={(e)=> setPercForm({...percForm, paid: e.target.checked})} />
-      Percorso saldato
-    </label>
-  </div>
-</div>
-
-<div className="flex items-end">
-  <Button onClick={()=>{
-    if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
-    onAddPercorso(selectedUser.id, percForm)
-    setPercForm({ name:'', professionalId: percForm.professionalId, totalSessions: 10, expiryYMD:'', paid:false })
-  }}>Aggiungi percorso</Button>
-</div>
-
-                    <div className="space-y-4">
-                      {selectedUser.percorsi.map(percorso => {
-                        const pro = pros.find(pr => pr.id === percorso.professionalId)
-                        return (
-                          <div key={percorso.id} className="rounded-xl border-2 p-3" style={{ borderColor: pro?.color }}>
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className="inline-block w-4 h-4 rounded-full" style={{ background: pro?.color }} />
-                                <div className="font-medium">{percorso.name}</div>
-                              </div>
-                              <div className="text-xs text-gray-500">Residuo {percorso.remainingSessions}/{percorso.totalSessions}</div>
-                            </div>
-
-                            <div className="mt-1 text-xs text-gray-600">
-                              Scadenza percorso: <span className="font-medium">{percorso.deadlineISO ? fmtItDateOnly(percorso.deadlineISO) : '-'}</span> •
-                              <span className="ml-2 font-medium">{percorso.paid ? 'Percorso saldato' : 'Percorso da saldare'}</span>
-                            </div>
-
-<div className="mt-2 grid md:grid-cols-3 gap-3">
-  <Field label="Scadenza percorso">
-    <input type="date" className="rounded-xl border p-2"
-           value={percorso.expiryYMD || ''}
-           onChange={(e)=> updatePercorso(selectedUser.id, percorso.id, { expiryYMD: e.target.value })} />
-  </Field>
-  <div className="flex items-end">
-    <label className="inline-flex items-center gap-2 text-sm">
-      <input type="checkbox"
-             checked={!!percorso.paid}
-             onChange={(e)=> updatePercorso(selectedUser.id, percorso.id, { paid: e.target.checked })} />
-      Percorso saldato
-    </label>
-  </div>
-</div>
-
-                            <div className="mt-3">
-                              <Button onClick={()=> setDtOpen(true)}>Scegli data/ora</Button>
-                              <DateTimeModal open={dtOpen} onClose={()=> setDtOpen(false)} onConfirm={(iso)=>{
-                                if (confirm(`Confermi l'aggiunta di questo incontro?`)) onPlan(selectedUser.id, percorso.id, iso)
-                              }} />
-                            </div>
-
-                            <div className="mt-4 space-y-4">
-                              <div>
-                                <div className="font-semibold mb-2">Prossimi incontri</div>
-                                <ul className="space-y-2">
-                                  {percorso.sessions.map(sess => (
-                                    <EditableSessionRow key={sess.id} initialIso={sess.datetimeISO}
-                                      onEdit={(newIso)=> onEditSession(selectedUser.id, percorso.id, sess.id, newIso, false)}
-                                      onDelete={()=> onDeletePlanned(selectedUser.id, percorso.id, sess.id)}
-                                      onConfirm={()=> onConfirm(selectedUser.id, percorso.id, sess.id)}
-                                    />
-                                  ))}
-                                  {percorso.sessions.length===0 && <li className="text-sm text-gray-500"> - </li>}
-                                </ul>
-                              </div>
-                              <div>
-                                <div className="font-semibold mb-2">Storico incontri</div>
-                                <ul className="space-y-2">
-                                  {percorso.history.map(sess => (
-                                    <EditableSessionRow key={sess.id} initialIso={sess.datetimeISO}
-                                      onEdit={(newIso)=> onEditSession(selectedUser.id, percorso.id, sess.id, newIso, true)}
-                                      onDelete={()=> onDeleteHistory(selectedUser.id, percorso.id, sess.id)}
-                                      hideConfirm deleteMsg="Confermi di eliminare questo incontro passato?"
-                                    />
-                                  ))}
-                                  {percorso.history.length===0 && <li className="text-sm text-gray-500"> - </li>}
-                                </ul>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                      {selectedUser.percorsi.length===0 && <div className="text-sm text-gray-500">Nessun percorso: aggiungine uno sopra.</div>}
-                    </div>
-                  </div>
+                {/* Cerca */}
+                <div className="mb-3">
+                  <Field label="Cerca (cognome o codice)">
+                    <input
+                      className="rounded-xl border p-2 w-full"
+                      placeholder="Es. Rossi oppure 123456"
+                      value={q}
+                      onChange={(e)=> setQ(e.target.value)}
+                    />
+                  </Field>
                 </div>
-              )}
-            </Card>
+
+                <div className="space-y-2">
+                  {prepared.map(r => (
+                    <div key={r.u.id} className={"rounded-xl border p-3 " + (selectedUserId===r.u.id ? 'bg-slate-50':'')}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{r.shown}</div>
+                          <div className="text-xs text-gray-500">
+                            Codice: <span className="font-mono">{r.codeStr}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <Button variant="ghost" onClick={()=> setSelectedUserId(r.u.id)}>Apri</Button>
+                          <Button variant="danger" onClick={()=>{ if (confirm(`Confermi l'eliminazione dell'utente?`)) onDeleteUser(r.u.id) }}>Elimina</Button>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {(r.u.percorsi||[]).map(p=>{
+                          const pro = pros.find(pr => pr.id === p.professionalId)
+                          return (
+                            <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full border-2"
+                                  style={{ borderColor: pro?.color, color: pro?.color }}>
+                              {p.name}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {prepared.length===0 && <div className="text-sm text-gray-500">Nessun utente.</div>}
+                </div>
+              </Card>
+            </div>
+
+            {/* Colonna PERCORSI – 70% */}
+            <div className="md:col-span-7">
+              <Card accent={me.color}>
+                {!selectedUser ? (
+                  <div className="text-sm text-gray-500">Seleziona un utente.</div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">{displaySurnameFirst(selectedUser.fullName)}</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Codice</span>
+                        <input className="rounded-xl border p-2 font-mono w-28 text-center" value={selectedUser.code} readOnly />
+                        <Button variant="ghost" onClick={()=> onRegenerateCode(selectedUser.id)}>Rigenera</Button>
+                        <Button variant="ghost" onClick={()=>{
+                          const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
+                          if (v==null) return
+                          if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
+                          if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
+                          onUpdateUser({ ...selectedUser, code: v })
+                        }}>Modifica</Button>
+                      </div>
+                    </div>
+
+                    {/* campi base utente */}
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <Field label="Mail">
+                        <input type="email" className="rounded-xl border p-2"
+                          value={selectedUser.email || ''}
+                          onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })} />
+                      </Field>
+                      <Field label="Cellulare">
+                        <input className="rounded-xl border p-2"
+                          value={selectedUser.phone || ''}
+                          onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })} />
+                      </Field>
+                    </div>
+
+                    <div className="border-t pt-3">
+                      <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
+
+                      {/* form nuovo percorso */}
+                      <div className="grid md:grid-cols-5 gap-3 mb-3">
+                        <Field label="Nome percorso">
+                          <input className="rounded-xl border p-2"
+                            value={percForm.name}
+                            onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
+                            placeholder="Es. Logopedia" />
+                        </Field>
+
+                        <Field label="Professionista">
+                          <select className="rounded-xl border p-2"
+                            value={percForm.professionalId}
+                            onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
+                            {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        </Field>
+
+                        <Field label="Numero di incontri (totale)">
+                          <input type="number" className="rounded-xl border p-2"
+                            value={percForm.totalSessions}
+                            onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} />
+                        </Field>
+
+                        <Field label="Scadenza percorso">
+                          <input type="date" className="rounded-xl border p-2"
+                            value={percForm.expiryYMD}
+                            onChange={(e)=>setPercForm({...percForm, expiryYMD: e.target.value})} />
+                        </Field>
+
+                        <div className="flex items-end">
+                          <label className="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox"
+                              checked={percForm.paid}
+                              onChange={(e)=> setPercForm({...percForm, paid: e.target.checked})} />
+                            Percorso saldato
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="flex items-end">
+                        <Button onClick={()=>{
+                          if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
+                          onAddPercorso(selectedUser.id, percForm)
+                          setPercForm({ name:'', professionalId: percForm.professionalId, totalSessions: 10, expiryYMD:'', paid:false })
+                        }}>Aggiungi percorso</Button>
+                      </div>
+
+                      {/* elenco percorsi */}
+                      <div className="space-y-4 mt-4">
+                        {selectedUser.percorsi.map(percorso => {
+                          const pro = pros.find(pr => pr.id === percorso.professionalId)
+                          return (
+                            <div key={percorso.id} className="rounded-xl border-2 p-3" style={{ borderColor: pro?.color }}>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-block w-4 h-4 rounded-full" style={{ background: pro?.color }} />
+                                  <div className="font-medium">{percorso.name}</div>
+                                </div>
+                                <div className="text-xs text-gray-500">Residuo {percorso.remainingSessions}/{percorso.totalSessions}</div>
+                              </div>
+
+                              <div className="mt-1 text-xs text-gray-600">
+                                Scadenza percorso: <span className="font-medium">{fmtYMDtoIt(percorso.expiryYMD || '')}</span> •
+                                <span className="ml-2 font-medium">{percorso.paid ? 'Percorso saldato' : 'Percorso da saldare'}</span>
+                              </div>
+
+                              {/* modifica scadenza / saldato */}
+                              <div className="mt-2 grid md:grid-cols-3 gap-3">
+                                <Field label="Scadenza percorso">
+                                  <input type="date" className="rounded-xl border p-2"
+                                    value={percorso.expiryYMD || ''}
+                                    onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })} />
+                                </Field>
+                                <div className="flex items-end">
+                                  <label className="inline-flex items-center gap-2 text-sm">
+                                    <input type="checkbox"
+                                      checked={!!percorso.paid}
+                                      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })} />
+                                    Percorso saldato
+                                  </label>
+                                </div>
+                              </div>
+
+                              <div className="mt-3">
+                                <Button onClick={()=> setDtOpen(true)}>Scegli data/ora</Button>
+                                <DateTimeModal open={dtOpen} onClose={()=> setDtOpen(false)} onConfirm={(iso)=>{
+                                  if (confirm(`Confermi l'aggiunta di questo incontro?`)) onPlan(selectedUser.id, percorso.id, iso)
+                                }} />
+                              </div>
+
+                              <div className="mt-4 space-y-4">
+                                <div>
+                                  <div className="font-semibold mb-2">Prossimi incontri</div>
+                                  <ul className="space-y-2">
+                                    {percorso.sessions.map(sess => (
+                                      <EditableSessionRow key={sess.id} initialIso={sess.datetimeISO}
+                                        onEdit={(newIso)=> onEditSession(selectedUser.id, percorso.id, sess.id, newIso, false)}
+                                        onDelete={()=> onDeletePlanned(selectedUser.id, percorso.id, sess.id)}
+                                        onConfirm={()=> onConfirm(selectedUser.id, percorso.id, sess.id)}
+                                      />
+                                    ))}
+                                    {percorso.sessions.length===0 && <li className="text-sm text-gray-500"> - </li>}
+                                  </ul>
+                                </div>
+                                <div>
+                                  <div className="font-semibold mb-2">Storico incontri</div>
+                                  <ul className="space-y-2">
+                                    {percorso.history.map(sess => (
+                                      <EditableSessionRow key={sess.id} initialIso={sess.datetimeISO}
+                                        onEdit={(newIso)=> onEditSession(selectedUser.id, percorso.id, sess.id, newIso, true)}
+                                        onDelete={()=> onDeleteHistory(selectedUser.id, percorso.id, sess.id)}
+                                        hideConfirm deleteMsg="Confermi di eliminare questo incontro passato?"
+                                      />
+                                    ))}
+                                    {percorso.history.length===0 && <li className="text-sm text-gray-500"> - </li>}
+                                  </ul>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {selectedUser.percorsi.length===0 && <div className="text-sm text-gray-500">Nessun percorso: aggiungine uno sopra.</div>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
           </div>
+          {/* === WRAPPER 30/70 END === */}
+        </>
       )}
     </div>
   )
