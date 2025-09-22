@@ -1020,7 +1020,7 @@ function ProDashboard({
 
                     <div className="border-t pt-3">
                       <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
-                      
+
 {/* form nuovo percorso */}
 <div className="grid md:grid-cols-3 gap-3 mb-3">
   <Field label="Nome percorso">
@@ -1119,61 +1119,68 @@ function ProDashboard({
                                 <span className="ml-2 font-medium">{percorso.paid ? 'Percorso saldato' : 'Percorso da saldare'}</span>
                               </div>
 
-                              {/* modifica percorso: nome, totale, scadenza, saldo */}
-                              <div className="mt-2 grid md:grid-cols-5 gap-3">
-                                {/* Nome percorso (tendina) */}
-                                <Field label="Percorso">
-                                  <select
-                                    className="rounded-xl border p-2"
-                                    value={percorso.name}
-                                    onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { name: e.target.value })}
-                                  >
-                                    {PERCORSO_OPTIONS.map(opt => (
-                                      <option key={opt} value={opt}>{opt}</option>
-                                    ))}
-                                  </select>
-                                </Field>
+                              {/* modifica percorso: layout ampio in due righe */}
+<div className="mt-2 grid md:grid-cols-3 gap-3">
+  {/* Percorso largo */}
+  <div className="md:col-span-2">
+    <Field label="Percorso">
+      <select
+        className="rounded-xl border p-2 w-full"
+        value={percorso.name}
+        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { name: e.target.value })}
+      >
+        {PERCORSO_OPTIONS.map(opt => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+    </Field>
+  </div>
 
-                                {/* Totale incontri (ricalcola residuo in base a storico) */}
-                                <Field label="Totale incontri">
-                                  <input
-                                    type="number"
-                                    className="rounded-xl border p-2"
-                                    value={percorso.totalSessions}
-                                    onChange={(e)=>{
-                                      const newTotal = Math.max(0, Number(e.target.value || 0))
-                                      const done = (percorso.history || []).length
-                                      const newRem = Math.max(0, newTotal - done)
-                                      updatePercorsoInline(selectedUser.id, percorso.id, {
-                                        totalSessions: newTotal,
-                                        remainingSessions: newRem
-                                      })
-                                    }}
-                                  />
-                                </Field>
+  {/* Totale incontri */}
+  <Field label="Totale incontri">
+    <input
+      type="number"
+      className="rounded-xl border p-2 w-full"
+      value={percorso.totalSessions}
+      onChange={(e)=>{
+        const newTotal = Math.max(0, Number(e.target.value || 0))
+        const done = (percorso.history || []).length
+        const newRem = Math.max(0, newTotal - done) // non perdi pianificati/svolti
+        updatePercorsoInline(selectedUser.id, percorso.id, {
+          totalSessions: newTotal,
+          remainingSessions: newRem
+        })
+      }}
+    />
+  </Field>
+</div>
 
-                                {/* Scadenza */}
-                                <Field label="Scadenza percorso">
-                                  <input
-                                    type="date"
-                                    className="rounded-xl border p-2"
-                                    value={percorso.expiryYMD || ''}
-                                    onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })}
-                                  />
-                                </Field>
+<div className="mt-2 grid md:grid-cols-3 gap-3">
+  {/* Scadenza larga */}
+  <div className="md:col-span-2">
+    <Field label="Scadenza percorso">
+      <input
+        type="date"
+        className="rounded-xl border p-2 w-full"
+        value={percorso.expiryYMD || ''}
+        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })}
+      />
+    </Field>
+  </div>
 
-                                {/* Pagato / da saldare */}
-                                <div className="flex items-end">
-                                  <label className="inline-flex items-center gap-2 text-sm">
-                                    <input
-                                      type="checkbox"
-                                      checked={!!percorso.paid}
-                                      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })}
-                                    />
-                                    Percorso saldato
-                                  </label>
-                                </div>
-                              </div>
+  {/* Pagato / da saldare */}
+  <div className="flex items-end">
+    <label className="inline-flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={!!percorso.paid}
+        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })}
+      />
+      Percorso saldato
+    </label>
+  </div>
+</div>
+
 
                               <div className="mt-3">
                                 <Button onClick={()=> setDtOpen(true)}>Scegli data/ora</Button>
