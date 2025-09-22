@@ -783,15 +783,15 @@ function ProDashboard({
   }, [prepared, selectedUserId])
 
   const selectedUser = prepared.find(r => r.u.id === selectedUserId)?.u || null
-
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
   const [percForm, setPercForm] = useState({
   name: PERCORSO_OPTIONS[0],
   professionalId: me.id,
   totalSessions: 10,
   expiryYMD: '',
-  paid: false,
+  paid: false
 })
+
 
   const [dtOpen, setDtOpen] = useState(false)
 
@@ -961,31 +961,26 @@ function ProDashboard({
   </h3>
 
   {/* riga 2: Codice + pulsanti (va sotto su mobile, affiancata da md in su) */}
-  <div className="flex flex-wrap items-center gap-2">
-    <span className="text-xs text-gray-500">Codice</span>
-    <input
-      className="rounded-xl border p-2 font-mono w-28 text-center shrink-0"
-      value={selectedUser.code}
-      readOnly
-    />
-    <Button variant="ghost" onClick={()=> onRegenerateCode(selectedUser.id)}>
-      Rigenera
-    </Button>
-    <Button
-      variant="ghost"
-      onClick={()=> {
-        const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
-        if (v==null) return
-        if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
-        if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
-        onUpdateUser({ ...selectedUser, code: v })
-      }}
-    >
-      Modifica
-    </Button>
-  </div>
+<div className="flex flex-wrap items-center gap-2">
+  <span className="text-xs text-gray-500">Codice</span>
+  <input
+    className="rounded-xl border p-2 font-mono w-28 text-center shrink-0"
+    value={selectedUser.code}
+    readOnly
+  />
+  <Button
+    variant="ghost"
+    onClick={()=> {
+      const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
+      if (v==null) return
+      if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
+      if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
+      onUpdateUser({ ...selectedUser, code: v })
+    }}
+  >
+    Modifica
+  </Button>
 </div>
-
 
                     {/* campi base utente */}
 <div className="grid md:grid-cols-3 gap-3">
@@ -1019,24 +1014,18 @@ function ProDashboard({
 
                       {/* form nuovo percorso */}
                       <div className="grid md:grid-cols-5 gap-3 mb-3">
-                        - <Field label="Nome percorso">
-   <input className="rounded-xl border p-2"
+                      <Field label="Nome percorso">
+  <select
+    className="rounded-xl border p-2"
     value={percForm.name}
-     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
-     placeholder="Es. Logopedia" />
- </Field>
- <Field label="Nome percorso">
-   <select
-     className="rounded-xl border p-2"
-     value={percForm.name}
-     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
-   >
-     <option value="" disabled>— seleziona —</option>
-     {PERCORSO_OPTIONS.map(opt => (
-       <option key={opt} value={opt}>{opt}</option>
-     ))}
-   </select>
- </Field>
+    onChange={(e)=> setPercForm({ ...percForm, name: e.target.value })}
+  >
+    {PERCORSO_OPTIONS.map(opt => (
+      <option key={opt} value={opt}>{opt}</option>
+    ))}
+  </select>
+</Field>
+
 
 
                         <Field label="Professionista">
