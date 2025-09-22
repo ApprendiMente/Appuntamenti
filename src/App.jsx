@@ -954,21 +954,38 @@ function ProDashboard({
                   <div className="text-sm text-gray-500">Seleziona un utente.</div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-semibold">{displaySurnameFirst(selectedUser.fullName)}</h3>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">Codice</span>
-                        <input className="rounded-xl border p-2 font-mono w-28 text-center" value={selectedUser.code} readOnly />
-                        <Button variant="ghost" onClick={()=> onRegenerateCode(selectedUser.id)}>Rigenera</Button>
-                        <Button variant="ghost" onClick={()=>{
-                          const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
-                          if (v==null) return
-                          if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
-                          if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
-                          onUpdateUser({ ...selectedUser, code: v })
-                        }}>Modifica</Button>
-                      </div>
-                    </div>
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+  {/* riga 1: solo Nome Cognome */}
+  <h3 className="text-lg font-semibold truncate">
+    {displaySurnameFirst(selectedUser.fullName)}
+  </h3>
+
+  {/* riga 2: Codice + pulsanti (va sotto su mobile, affiancata da md in su) */}
+  <div className="flex flex-wrap items-center gap-2">
+    <span className="text-xs text-gray-500">Codice</span>
+    <input
+      className="rounded-xl border p-2 font-mono w-28 text-center shrink-0"
+      value={selectedUser.code}
+      readOnly
+    />
+    <Button variant="ghost" onClick={()=> onRegenerateCode(selectedUser.id)}>
+      Rigenera
+    </Button>
+    <Button
+      variant="ghost"
+      onClick={()=> {
+        const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
+        if (v==null) return
+        if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
+        if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
+        onUpdateUser({ ...selectedUser, code: v })
+      }}
+    >
+      Modifica
+    </Button>
+  </div>
+</div>
+
 
                     {/* campi base utente */}
 <div className="grid md:grid-cols-3 gap-3">
@@ -1069,7 +1086,6 @@ function ProDashboard({
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
                                   <span className="inline-block w-4 h-4 rounded-full" style={{ background: pro?.color }} />
-                                  <div className="font-medium">{percorso.name}</div>
                                 </div>
                                 <div className="text-xs text-gray-500">Residuo {percorso.remainingSessions}/{percorso.totalSessions}</div>
                               </div>
