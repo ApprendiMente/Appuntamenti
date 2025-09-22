@@ -760,7 +760,7 @@ const [percForm, setPercForm] = useState({
                     <div className="mt-2 flex flex-wrap gap-1">
                       {(r.u.percorsi||[]).map(p=>{
                         const pro = pros.find(pr => pr.id === p.professionalId)
-                        return <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: pro?.color, color: pro?.color }}>{p.name}</span>
+                        return <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full border-2" style={{ borderColor: pro?.color, color: pro?.color }}>{p.name}</span>
                       })}
                     </div>
                   </div>
