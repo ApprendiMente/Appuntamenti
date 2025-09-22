@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, hasSupabase } from './lib/supabase'
 
@@ -16,7 +15,6 @@ const indexById = (arr = []) => {
 }
 
 const mergeArraysById = (localArr = [], remoteArr = []) => {
-  // unione per id; se in futuro aggiungi 'updatedAt', puoi decidere in base al più recente
   const m = indexById(remoteArr)
   for (const x of localArr) m.set(x.id, { ...(m.get(x.id) || {}), ...x })
   return Array.from(m.values())
@@ -32,11 +30,10 @@ function useDebouncedEffect(effect, deps, delay = 800) {
   useEffect(() => {
     const h = setTimeout(effect, delay)
     return () => clearTimeout(h)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, delay])
 }
 // ---------------------------------
-
 
 const BRAND = { primary: 'var(--brand-primary)', secondary: 'var(--brand-secondary)', accent: 'var(--brand-accent)', bg: 'var(--brand-bg)', text: '#1A202C' }
 const PRO_COLORS = ['#0EA5E9','#22C55E','#F59E0B','#EF4444','#8B5CF6','#14B8A6','#EC4899','#6366F1','#84CC16','#06B6D4']
@@ -57,25 +54,27 @@ function displaySurnameFirst(full) {
   return [last, first].filter(Boolean).join(' ')
 }
 
+function fmtYMD(ymd) {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ''
+  return `${ymd.slice(8,10)}-${ymd.slice(5,7)}-${ymd.slice(2,4)}`
+}
+
 // parse dd-mm-yy o yyyy-mm-dd -> ISO (00:00 locale)
 function isoFromAnyDate(input) {
   if (!input) return ''
   const s = String(input).trim()
-  // dd-mm-yy
   const m1 = /^([0-3]\d)-([0-1]\d)-(\d{2})$/.exec(s)
   if (m1) {
     const [, dd, mm, aa] = m1
     const d = new Date(2000 + Number(aa), Number(mm) - 1, Number(dd), 0, 0, 0)
     return Number.isNaN(d.getTime()) ? '' : d.toISOString()
   }
-  // yyyy-mm-dd (da input type=date)
   const m2 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
   if (m2) {
     const [, Y, M, D] = m2
     const d = new Date(Number(Y), Number(M) - 1, Number(D), 0, 0, 0)
     return Number.isNaN(d.getTime()) ? '' : d.toISOString()
   }
-  // fallback Date.parse
   const d = new Date(s)
   return Number.isNaN(d.getTime()) ? '' : d.toISOString()
 }
@@ -88,7 +87,7 @@ const fmtItDateOnly = (iso) => {
   return `${dd}-${mm}-${yy}`
 }
 
-// Helpers
+// Helpers sessioni
 function buildISOFromYMD_HHMM(ymd, hhmm) {
   if (!ymd || !hhmm) return null
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
@@ -111,193 +110,182 @@ const LS = { pros: 'appr_pros', users: 'appr_users', deletedUsers: 'appr_deleted
 const loadLS = (k, f) => { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) : f } catch { return f } }
 const saveLS = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }
 
-const [deletedUsers, setDeletedUsers] = useState(() => loadLS(LS.deletedUsers, []))
-
 export default function App() {
   const [pros, setPros] = useState(() => loadLS(LS.pros, []))
   const [users, setUsers] = useState(() => loadLS(LS.users, []))
+  const [deletedUsers, setDeletedUsers] = useState(() => loadLS(LS.deletedUsers, [])) // ✅ dentro App()
+
   const [role, setRole] = useState(null)
   const [authOk, setAuthOk] = useState(false)
-const [currentProId, setCurrentProId] = useState(() => {
-  try { return localStorage.getItem('appr_currentProId') || null } catch { return null }
-})
 
-useEffect(() => {
-  try {
-    if (currentProId) localStorage.setItem('appr_currentProId', currentProId)
-    else localStorage.removeItem('appr_currentProId')
-  } catch {}
-}, [currentProId])
+  const [currentProId, setCurrentProId] = useState(() => {
+    try { return localStorage.getItem('appr_currentProId') || null } catch { return null }
+  })
+  useEffect(() => {
+    try {
+      if (currentProId) localStorage.setItem('appr_currentProId', currentProId)
+      else localStorage.removeItem('appr_currentProId')
+    } catch {}
+  }, [currentProId])
+
   const [currentUserId, setCurrentUserId] = useState(null)
 
-const [deletedUsers, setDeletedUsers] = useState(() => loadLS(LS.deleted, []))
-useEffect(() => saveLS(LS.deleted, deletedUsers), [deletedUsers])
-
-
-// NEW: controllo consistenza / versionamento
-
+  // persist
   useEffect(() => saveLS(LS.pros, pros), [pros])
   useEffect(() => saveLS(LS.users, users), [users])
-useEffect(() => saveLS(LS.deletedUsers, deletedUsers), [deletedUsers])
+  useEffect(() => saveLS(LS.deletedUsers, deletedUsers), [deletedUsers])
 
-// ===== Supabase sync (Option 2 MVP, safe) =====
-const TENANT_ID = 'default'
-const savingRef = useRef(false)
-const [rev, setRev] = useState(0)
-const lastAppliedRef = useRef(null) // { pros, users, deletedUsers }
+  // ===== Supabase sync (CAS + merge) =====
+  const TENANT_ID = 'default'
+  const savingRef = useRef(false)
+  const [rev, setRev] = useState(0)
+  const lastAppliedRef = useRef(null) // { pros, users, deletedUsers }
 
-async function remoteLoad() {
-  if (!hasSupabase) return null
-  const { data, error } = await supabase
-    .from('app_state')
-    .select('data, rev')
-    .eq('id', TENANT_ID)
-    .single()
-  if (error) { console.warn('Supabase load error', error); return null }
-  return data // { data: {...}, rev: number }
-}
-
-async function remoteSaveCAS(snapshot, attempt = 0) {
-  if (!hasSupabase) return
-  if (attempt > 2) return // evita loop infiniti
-
-  try {
-    savingRef.current = true
-
-    // 1) prova update condizionato su rev (compare-and-swap)
-    const { data: updated, error: upErr } = await supabase
-      .from('app_state')
-      .update({
-        data: snapshot,
-        rev: rev + 1,
-        updated_at: nowISO()
-      })
-      .eq('id', TENANT_ID)
-      .eq('rev', rev)
-      .select('data, rev')
-      .single()
-
-    if (!upErr && updated) {
-      setRev(updated.rev)
-      lastAppliedRef.current = {
-        pros: snapshot.pros || [],
-        users: snapshot.users || [],
-        deletedUsers: snapshot.deletedUsers || []
-      }
-      return
-    }
-
-    // 2) conflitto → ricarica, unisci, riprova
-    const { data: current, error: curErr } = await supabase
+  async function remoteLoad() {
+    if (!hasSupabase) return null
+    const { data, error } = await supabase
       .from('app_state')
       .select('data, rev')
       .eq('id', TENANT_ID)
       .single()
-
-    if (curErr || !current) {
-      console.warn('CAS reload error', curErr)
-      return
-    }
-
-    const remote = {
-      pros: current.data?.pros || [],
-      users: current.data?.users || [],
-      deletedUsers: current.data?.deletedUsers || []
-    }
-
-    const merged = mergeSnapshots(snapshot, remote)
-
-    // applica merge localmente
-    setPros(merged.pros)
-    setUsers(merged.users)
-    setDeletedUsers(merged.deletedUsers)
-    setRev(current.rev)
-    lastAppliedRef.current = merged
-
-    // riprova salvataggio con il merge
-    await remoteSaveCAS(merged, attempt + 1)
-
-  } finally {
-    setTimeout(() => { savingRef.current = false }, 200)
+    if (error) { console.warn('Supabase load error', error); return null }
+    return data // { data: {...}, rev: number }
   }
-}
 
+  async function remoteSaveCAS(snapshot, attempt = 0) {
+    if (!hasSupabase) return
+    if (attempt > 2) return
 
-const [hydrated, setHydrated] = useState(false)
-const initialPros = useRef(pros)
-const initialUsers = useRef(users)
+    try {
+      savingRef.current = true
 
-useEffect(() => {
-  let channel = null
-  ;(async () => {
-    const remote = await remoteLoad()
-    if (remote?.data) {
-      setPros(remote.data.pros || [])
-      setUsers(remote.data.users || [])
-      setDeletedUsers(remote.data.deletedUsers || [])
-      setRev(typeof remote.rev === 'number' ? remote.rev : 0)
-      lastAppliedRef.current = {
-        pros: remote.data.pros || [],
-        users: remote.data.users || [],
-        deletedUsers: remote.data.deletedUsers || []
+      const { data: updated, error: upErr } = await supabase
+        .from('app_state')
+        .update({
+          data: snapshot,
+          rev: rev + 1,
+          updated_at: nowISO()
+        })
+        .eq('id', TENANT_ID)
+        .eq('rev', rev)
+        .select('data, rev')
+        .single()
+
+      if (!upErr && updated) {
+        setRev(updated.rev)
+        lastAppliedRef.current = {
+          pros: snapshot.pros || [],
+          users: snapshot.users || [],
+          deletedUsers: snapshot.deletedUsers || []
+        }
+        return
       }
-    } else if ((initialPros.current?.length || initialUsers.current?.length || (deletedUsers?.length)) && hasSupabase) {
-      await remoteSaveCAS({
-        pros: initialPros.current,
-        users: initialUsers.current,
-        deletedUsers: deletedUsers || []
-      })
+
+      // conflitto → ricarica & unisci & riprova
+      const { data: current, error: curErr } = await supabase
+        .from('app_state')
+        .select('data, rev')
+        .eq('id', TENANT_ID)
+        .single()
+
+      if (curErr || !current) {
+        console.warn('CAS reload error', curErr)
+        return
+      }
+
+      const remote = {
+        pros: current.data?.pros || [],
+        users: current.data?.users || [],
+        deletedUsers: current.data?.deletedUsers || []
+      }
+
+      const merged = mergeSnapshots(snapshot, remote)
+
+      setPros(merged.pros)
+      setUsers(merged.users)
+      setDeletedUsers(merged.deletedUsers)
+      setRev(current.rev)
+      lastAppliedRef.current = merged
+
+      await remoteSaveCAS(merged, attempt + 1)
+    } finally {
+      setTimeout(() => { savingRef.current = false }, 200)
     }
+  }
 
-    if (hasSupabase && supabase?.channel) {
-      try {
-        channel = supabase
-          .channel('app_state_changes')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'app_state', filter: `id=eq.${TENANT_ID}` },
-            (payload) => {
-              const next = payload.new?.data
-              if (!next || savingRef.current) return
-              if (typeof next.rev === 'number' && next.rev <= rev) return
+  const [hydrated, setHydrated] = useState(false)
+  const initialPros = useRef(pros)
+  const initialUsers = useRef(users)
 
-              const incoming = {
-                pros: next.pros || [],
-                users: next.users || [],
-                deletedUsers: next.deletedUsers || []
+  useEffect(() => {
+    let channel = null
+    ;(async () => {
+      const remote = await remoteLoad()
+      if (remote?.data) {
+        setPros(remote.data.pros || [])
+        setUsers(remote.data.users || [])
+        setDeletedUsers(remote.data.deletedUsers || [])
+        setRev(typeof remote.rev === 'number' ? remote.rev : 0)
+        lastAppliedRef.current = {
+          pros: remote.data.pros || [],
+          users: remote.data.users || [],
+          deletedUsers: remote.data.deletedUsers || []
+        }
+      } else if ((initialPros.current?.length || initialUsers.current?.length || (deletedUsers?.length)) && hasSupabase) {
+        await remoteSaveCAS({
+          pros: initialPros.current,
+          users: initialUsers.current,
+          deletedUsers: deletedUsers || []
+        })
+      }
+
+      if (hasSupabase && supabase?.channel) {
+        try {
+          channel = supabase
+            .channel('app_state_changes')
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'app_state', filter: `id=eq.${TENANT_ID}` },
+              (payload) => {
+                const next = payload.new?.data
+                if (!next || savingRef.current) return
+                if (typeof next.rev === 'number' && next.rev <= rev) return
+
+                const incoming = {
+                  pros: next.pros || [],
+                  users: next.users || [],
+                  deletedUsers: next.deletedUsers || []
+                }
+
+                const applied = lastAppliedRef.current
+                if (applied && JSON.stringify(applied) === JSON.stringify(incoming)) return
+
+                setPros(incoming.pros)
+                setUsers(incoming.users)
+                setDeletedUsers(incoming.deletedUsers)
+                setRev(typeof next.rev === 'number' ? next.rev : (rev + 1))
+                lastAppliedRef.current = incoming
               }
+            )
+            .subscribe()
+        } catch (e) { console.warn('Realtime not available', e) }
+      }
 
-              const applied = lastAppliedRef.current
-              if (applied && JSON.stringify(applied) === JSON.stringify(incoming)) return
+      setHydrated(true)
+    })()
 
-              setPros(incoming.pros)
-              setUsers(incoming.users)
-              setDeletedUsers(incoming.deletedUsers)
-              setRev(typeof next.rev === 'number' ? next.rev : (rev + 1))
-              lastAppliedRef.current = incoming
-            }
-          )
-          .subscribe()
-      } catch (e) { console.warn('Realtime not available', e) }
-    }
+    return () => { try { if (channel) supabase.removeChannel(channel) } catch {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-    setHydrated(true)
-  })()
-
-  return () => { try { if (channel) supabase.removeChannel(channel) } catch {} }
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [])
-
-
-useDebouncedEffect(() => {
-  if (!hasSupabase || !hydrated) return
-  const snapshot = { pros, users, deletedUsers }
-  if (lastAppliedRef.current &&
-      JSON.stringify(lastAppliedRef.current) === JSON.stringify(snapshot)) return
-  remoteSaveCAS(snapshot)
-}, [pros, users, deletedUsers, hydrated], 800)
-// ===== end Supabase sync =====
-
+  useDebouncedEffect(() => {
+    if (!hasSupabase || !hydrated) return
+    const snapshot = { pros, users, deletedUsers }
+    if (lastAppliedRef.current &&
+        JSON.stringify(lastAppliedRef.current) === JSON.stringify(snapshot)) return
+    remoteSaveCAS(snapshot)
+  }, [pros, users, deletedUsers, hydrated], 800)
+  // ===== end Supabase sync =====
 
   const currentPro = useMemo(() => pros.find(p => p.id === currentProId) || null, [pros, currentProId])
   const currentUser = useMemo(() => users.find(u => u.id === currentUserId) || null, [users, currentUserId])
@@ -310,76 +298,66 @@ useDebouncedEffect(() => {
     const p = { id: uid(), name: name.trim(), email: (email||'').trim(), color: colorForIndex(pros.length) }
     setPros(s => [...s, p]); return p
   }
+
   function generateUniqueCode() { let code; do { code = String(Math.floor(100000 + Math.random()*900000)) } while (users.some(u => u.code === code)); return code }
+
   function createUser({ fullName, phone, email }) {
-  const u = {
-    id: uid(),
-    code: generateUniqueCode(),
-    fullName: fullName.trim(),
-    phone: (phone||'').trim(),
-    email: (email||'').trim(),
-    percorsi: []
+    const u = {
+      id: uid(),
+      code: generateUniqueCode(),
+      fullName: fullName.trim(),
+      phone: (phone||'').trim(),
+      email: (email||'').trim(),
+      percorsi: []
+    }
+    setUsers(prev => [...prev, u]); return u
   }
-  setUsers(prev => [...prev, u]); return u
-}
+
   function updateUser(u) { setUsers(prev => prev.map(x => x.id === u.id ? u : x)) }
 
-function deleteUser(userId) {
-  setUsers(prev => {
-    const u = prev.find(x => x.id === userId)
-    const rest = prev.filter(x => x.id !== userId)
-    if (u) {
-      setDeletedUsers(d => [{ ...u, deletedAt: nowISO() }, ...d])
-    }
-    return rest
-  })
-  if (currentUserId === userId) setCurrentUserId(null)
-}
+  function deleteUser(userId) {
+    setUsers(prev => {
+      const u = prev.find(x => x.id === userId)
+      const rest = prev.filter(x => x.id !== userId)
+      if (u) {
+        setDeletedUsers(d => [{ ...u, deletedAt: nowISO() }, ...d])
+      }
+      return rest
+    })
+    if (currentUserId === userId) setCurrentUserId(null)
+  }
 
-function restoreUser(userId) {
-  setDeletedUsers(prev => {
-    const idx = prev.findIndex(u => u.id === userId)
-    if (idx === -1) return prev
-    const u = prev[idx]
-    setUsers(us => [{ ...u, deletedAt: undefined }, ...us])
-    const copy = [...prev]; copy.splice(idx, 1)
-    return copy
-  })
-}
+  function restoreDeletedUser(userId) {
+    setDeletedUsers(prev => {
+      const rec = prev.find(u => u.id === userId)
+      if (!rec) return prev
+      let newCode = String(rec.code || '')
+      if (!/^\d{6}$/.test(newCode) || users.some(u => u.code === newCode)) {
+        newCode = generateUniqueCode()
+        alert('Codice già esistente: assegnato un nuovo codice.')
+      }
+      setUsers(uPrev => [{ ...rec, code: newCode, deletedAt: undefined }, ...uPrev])
+      return prev.filter(u => u.id !== userId)
+    })
+  }
 
-function restoreDeletedUser(userId) {
-  setDeletedUsers(prev => {
-    const rec = prev.find(u => u.id === userId)
-    if (!rec) return prev
-    // garantisci codice univoco a 6 cifre
-    let newCode = String(rec.code || '')
-    if (!/^\d{6}$/.test(newCode) || users.some(u => u.code === newCode)) {
-      newCode = generateUniqueCode()
-      alert('Codice già esistente: assegnato un nuovo codice.')
-    }
-    setUsers(uPrev => [{ ...rec, code: newCode, deletedAt: undefined }, ...uPrev])
-    return prev.filter(u => u.id !== userId)
-  })
-}
-
-function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, paid }) {
-  setUsers(prev => prev.map(u => {
-    if (u.id !== userId) return u
-    const p = {
-      id: uid(),
-      name: name.trim(),
-      professionalId,
-      totalSessions: Number(totalSessions) || 0,
-      remainingSessions: Number(totalSessions) || 0,
-      sessions: [],
-      history: [],
-      expiryYMD: expiryYMD || '',
-      paid: !!paid
-    }
-    return { ...u, percorsi: [...(u.percorsi || []), p] }
-  }))
-}
-
+  function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, paid }) {
+    setUsers(prev => prev.map(u => {
+      if (u.id !== userId) return u
+      const p = {
+        id: uid(),
+        name: name.trim(),
+        professionalId,
+        totalSessions: Number(totalSessions) || 0,
+        remainingSessions: Number(totalSessions) || 0,
+        sessions: [],
+        history: [],
+        expiryYMD: expiryYMD || '',
+        paid: !!paid
+      }
+      return { ...u, percorsi: [...(u.percorsi || []), p] }
+    }))
+  }
 
   function planSession(userId, percorsoId, iso) {
     setUsers(prev => prev.map(u => {
@@ -389,6 +367,7 @@ function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, p
       return { ...u, percorsi }
     }))
   }
+
   function confirmSession(userId, percorsoId, sessionId) {
     setUsers(prev => prev.map(u => {
       if (u.id !== userId) return u
@@ -401,6 +380,7 @@ function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, p
       return { ...u, percorsi }
     }))
   }
+
   function editSessionDate(userId, percorsoId, sessionId, newIso, isHistory=false) {
     setUsers(prev => prev.map(u => {
       if (u.id !== userId) return u
@@ -417,6 +397,7 @@ function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, p
       return { ...u, percorsi }
     }))
   }
+
   function deletePlannedSession(userId, percorsoId, sessionId) {
     setUsers(prev => prev.map(u => {
       if (u.id !== userId) return u
@@ -424,17 +405,20 @@ function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, p
       return { ...u, percorsi }
     }))
   }
-  function regenerateCode(userId) { const code = generateUniqueCode(); setUsers(prev => prev.map(u => u.id === userId ? { ...u, code } : u )) }
+
+  function regenerateCode(userId) {
+    const code = generateUniqueCode()
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, code } : u ))
+  }
 
   function updatePercorso(userId, percorsoId, partial) {
-  setUsers(prev => prev.map(u => {
-    if (u.id !== userId) return u
-    const percorsi = (u.percorsi || []).map(p => p.id === percorsoId ? { ...p, ...partial } : p)
-    return { ...u, percorsi }
-  }))
-}
+    setUsers(prev => prev.map(u => {
+      if (u.id !== userId) return u
+      const percorsi = (u.percorsi || []).map(p => p.id === percorsoId ? { ...p, ...partial } : p)
+      return { ...u, percorsi }
+    }))
+  }
 
-  
   // --- injected: professional update/delete and deleteHistorySession ---
   function updateProfessional(id, updates) {
     setPros(prev => {
@@ -467,30 +451,62 @@ function addPercorso(userId, { name, professionalId, totalSessions, expiryYMD, p
     }))
   }
   // --- end injected ---
-return (
+
+  return (
     <div className="min-h-screen" style={{ background: BRAND.bg, color: BRAND.text }}>
       <Header onBack={role ? ()=>setRole(null) : null} />
       <div className="mx-auto max-w-6xl px-4 py-6">
         {!role && <Landing onSelectRole={setRole} />}
+
         {role === 'professionista' && !authOk && <ProAuth onOk={()=>setAuthOk(true)} />}
+
         {role === 'professionista' && authOk && !currentPro && (
-          <ProIdentity pros={pros} onCreate={(name,email)=>{ const p = createProfessional(name,email); setCurrentProId(p.id)}} onSelect={(id)=> setCurrentProId(id)} onBack={()=>{ setAuthOk(false) }}  onUpdate={updateProfessional} onDelete={deleteProfessional}/>
-        )}
-        {role === 'professionista' && authOk && currentPro && (
-          <ProDashboard pros={pros} me={currentPro} users={users} onUpdateProfessional={updateProfessional} onDeleteProfessional={deleteProfessional}
-            onLogout={()=>{ setCurrentProId(null); setAuthOk(false) }}
-            onCreateUser={createUser} onDeleteUser={deleteUser} onUpdateUser={updateUser}
-            onAddPercorso={addPercorso} onPlan={planSession} onConfirm={confirmSession}
-            onEditSession={editSessionDate} onDeletePlanned={deletePlannedSession} onDeleteHistory={deleteHistorySession} onRegenerateCode={regenerateCode}
-            onBack={()=> setCurrentProId(null)}
-            deletedUsers={deletedUsers}                 // <--- NUOVO
-  onRestoreUser={restoreDeletedUser}          // <--- NUOVO
+          <ProIdentity
+            pros={pros}
+            onCreate={(name,email)=>{ const p = createProfessional(name,email); setCurrentProId(p.id)}}
+            onSelect={(id)=> setCurrentProId(id)}
+            onBack={()=>{ setAuthOk(false) }}
+            onUpdate={updateProfessional}
+            onDelete={deleteProfessional}
           />
         )}
-        {role === 'utente' && !currentUser && (<UserCodeLogin onSelectByCode={(code)=>{
-            const u = users.find(x => x.code === code.trim()); if (u) setCurrentUserId(u.id); else alert('Codice non valido. Contatta il professionista.')
-          }} onBack={()=> setRole(null)} />)}
-        {role === 'utente' && currentUser && (<UserDashboard pros={pros} user={currentUser} onBack={()=> setCurrentUserId(null)} />)}
+
+        {role === 'professionista' && authOk && currentPro && (
+          <ProDashboard
+            pros={pros}
+            me={currentPro}
+            users={users}
+            onUpdateProfessional={updateProfessional}
+            onDeleteProfessional={deleteProfessional}
+            onLogout={()=>{ setCurrentProId(null); setAuthOk(false) }}
+            onCreateUser={createUser}
+            onDeleteUser={deleteUser}
+            onUpdateUser={updateUser}
+            onAddPercorso={addPercorso}
+            onPlan={planSession}
+            onConfirm={confirmSession}
+            onEditSession={editSessionDate}
+            onDeletePlanned={deletePlannedSession}
+            onDeleteHistory={deleteHistorySession}
+            onRegenerateCode={regenerateCode}
+            onBack={()=> setCurrentProId(null)}
+            deletedUsers={deletedUsers}
+            onRestoreUser={restoreDeletedUser}
+          />
+        )}
+
+        {role === 'utente' && !currentUser && (
+          <UserCodeLogin
+            onSelectByCode={(code)=>{
+              const u = users.find(x => x.code === code.trim()); if (u) setCurrentUserId(u.id); else alert('Codice non valido. Contatta il professionista.')
+            }}
+            onBack={()=> setRole(null)}
+          />
+        )}
+
+        {role === 'utente' && currentUser && (
+          <UserDashboard pros={pros} user={currentUser} onBack={()=> setCurrentUserId(null)} />
+        )}
       </div>
     </div>
   )
@@ -513,8 +529,9 @@ function Header({ onBack }) {
   )
 }
 
-
-function Card({ children, accent }) { return <div className="rounded-2xl p-4 shadow-sm border bg-white" style={{ borderColor: accent || '#E2E8F0' }}>{children}</div> }
+function Card({ children, accent }) {
+  return <div className="rounded-2xl p-4 shadow-sm border bg-white" style={{ borderColor: accent || '#E2E8F0' }}>{children}</div>
+}
 function Button({ children, onClick, variant='primary', disabled, title }) {
   const base="inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold shadow-sm transition border"
   const styles={primary:{backgroundColor:'var(--brand-primary)',color:'white',borderColor:'var(--brand-primary)'},
@@ -631,20 +648,20 @@ function ProIdentity({ pros, onCreate, onSelect, onBack, onUpdate, onDelete }) {
         </div>
         {tab === 'entra' ? (
           <div className="space-y-3">
-             <Field label="Seleziona il tuo profilo professionista">
-  <div className="flex gap-2">
-    <select className="rounded-xl border p-2"
-            value={selectedId}
-            onChange={(e)=> setSelectedId(e.target.value)}>
-      <option value="" disabled>- scegli -</option>
-      {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
-    <Button onClick={()=> selectedId ? onSelect(selectedId) : alert('Seleziona un professionista')}>
-      Entra
-    </Button>
-  </div>
-</Field>
-            </div>
+            <Field label="Seleziona il tuo profilo professionista">
+              <div className="flex gap-2">
+                <select className="rounded-xl border p-2"
+                        value={selectedId}
+                        onChange={(e)=> setSelectedId(e.target.value)}>
+                  <option value="" disabled>- scegli -</option>
+                  {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <Button onClick={()=> selectedId ? onSelect(selectedId) : alert('Seleziona un professionista')}>
+                  Entra
+                </Button>
+              </div>
+            </Field>
+          </div>
         ) : (
           <div className="space-y-3">
             <Field label="Nome e Cognome"><input className="rounded-xl border p-2" value={name} onChange={(e)=>setName(e.target.value)} placeholder="Mario Rossi" /></Field>
@@ -701,8 +718,7 @@ function ProDashboard({
   onBack , onDeleteHistory,
   deletedUsers = [], onRestoreUser
 }) {
-  // --- helper locali (fallback sicuri) ---
-  const splitName = (full='') => {
+  const splitNameLocal = (full='') => {
     const parts = String(full).trim().split(/\s+/)
     if (parts.length === 0) return { first:'', last:'' }
     if (parts.length === 1) return { first:parts[0], last:'' }
@@ -710,19 +726,13 @@ function ProDashboard({
     const first = parts.join(' ')
     return { first, last }
   }
-  const displaySurnameFirst = (full='') => {
-    const { first, last } = splitName(full)
+  const displaySurnameFirstLocal = (full='') => {
+    const { first, last } = splitNameLocal(full)
     return [last, first].filter(Boolean).join(' ')
   }
-  const fmtYMDtoIt = (ymd) => {
-    if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '-'
-    return `${ymd.slice(8,10)}-${ymd.slice(5,7)}-${ymd.slice(2,4)}`
-  }
+  const fmtYMDtoIt = (ymd) => fmtYMD(ymd) || '-'
 
-  // vista: lista vs cestino
   const [view, setView] = useState('list') // 'list' | 'trash'
-
-  // filtro miei/tutti + ricerca
   const [showAll, setShowAll] = useState(false)
   const [q, setQ] = useState('') // cerca per cognome o codice
 
@@ -733,9 +743,9 @@ function ProDashboard({
   const prepared = useMemo(() => {
     const needle = q.trim().toLowerCase()
     const rows = baseUsers.map(u => {
-      const { first, last } = splitName(u.fullName)
+      const { first, last } = splitNameLocal(u.fullName)
       const key = `${(last||'').toLowerCase()} ${(first||'').toLowerCase()}`
-      const shown = displaySurnameFirst(u.fullName)
+      const shown = displaySurnameFirstLocal(u.fullName)
       const codeStr = String(u.code || '')
       const match = !needle || (last||'').toLowerCase().includes(needle) || codeStr.includes(needle)
       return { u, key, shown, codeStr, match }
@@ -754,17 +764,13 @@ function ProDashboard({
 
   const selectedUser = prepared.find(r => r.u.id === selectedUserId)?.u || null
 
-  // form utente
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
-
-  // form percorso (scadenza + saldato)
   const [percForm, setPercForm] = useState({
     name:'', professionalId: me.id, totalSessions: 10,
     expiryYMD:'', paid:false
   })
   const [dtOpen, setDtOpen] = useState(false)
 
-  // aggiorna un percorso dell'utente selezionato (inline, senza prop extra)
   const updatePercorsoInline = (userId, percorsoId, patch) => {
     const u = users.find(x => x.id === userId); if (!u) return
     const nextPercorsi = (u.percorsi || []).map(p => p.id === percorsoId ? { ...p, ...patch } : p)
@@ -803,7 +809,7 @@ function ProDashboard({
               <div key={u.id} className="rounded-xl border p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="font-medium truncate">
-                    {displaySurnameFirst(u.fullName)} <span className="text-xs text-gray-500">({u.code})</span>
+                    {displaySurnameFirstLocal(u.fullName)} <span className="text-xs text-gray-500">({u.code})</span>
                   </div>
                   <div className="text-xs text-gray-500">
                     Eliminato il {fmtYMDtoIt(u.deletedAt?.slice?.(0,10) || '')}{' '}
@@ -863,7 +869,7 @@ function ProDashboard({
             </div>
           </Card>
 
-          {/* === WRAPPER 30/70 START === */}
+          {/* === WRAPPER 40/60 START === */}
           <div className="grid grid-cols-1 md:grid-cols-10 gap-6">
             {/* Colonna UTENTI – 40% */}
             <div className="md:col-span-4">
@@ -1086,7 +1092,7 @@ function ProDashboard({
               </Card>
             </div>
           </div>
-          {/* === WRAPPER 30/70 END === */}
+          {/* === WRAPPER 40/60 END === */}
         </>
       )}
     </div>
@@ -1114,7 +1120,6 @@ function EditableSessionRow({ initialIso, onEdit, onDelete, onConfirm, hideConfi
             <input className="rounded-xl border p-2 w-28" placeholder="GG-MM-AA" value={dateIt} onChange={(e)=>setDateIt(e.target.value)} />
             <input className="rounded-xl border p-2 w-20" placeholder="HH-MM" value={timeIt} onChange={(e)=>setTimeIt(e.target.value)} />
             <Button variant="warn" onClick={()=>{
-              // Accept manual inputs for edit, keep previous parser style
               const d = /^([0-3]?\d)-([0-1]?\d)-(\d{2})$/.exec((dateIt||'').trim());
               const t = /^([0-2]?\d)-([0-5]\d)$/.exec((timeIt||'').trim());
               if (!d || !t) return alert('Data/ora non valide')
@@ -1180,7 +1185,7 @@ function UserDashboard({ pros, user, onBack }) {
                 Professionista: <span className="font-medium">{pro?.name || '-'}</span>
               </div>
               <div className="mt-1 text-xs text-gray-600">
-                Scadenza percorso: <span className="font-medium">{percorso.deadlineISO ? fmtItDateOnly(percorso.deadlineISO) : '-'}</span> •
+                Scadenza percorso: <span className="font-medium">{fmtYMD(percorso.expiryYMD) || '-'}</span> •
                 <span className="ml-2 font-medium">{percorso.paid ? 'Percorso saldato' : 'Percorso da saldare'}</span>
               </div>
 
@@ -1208,4 +1213,3 @@ function UserDashboard({ pros, user, onBack }) {
     </div>
   )
 }
-
