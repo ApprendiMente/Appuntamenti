@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, hasSupabase } from './lib/supabase'
+import logoAM from './assets/logo-am.jpg'
 
 // CONFIG
 const PRO_AUTH = { username: 'professionista', password: 'apprendi2025' }
-import logoAM from './assets/logo-am.jpg'
+
 
 // ---- MERGE & TIMESTAMP UTILS ----
 const nowISO = () => new Date().toISOString()
@@ -785,10 +786,13 @@ function ProDashboard({
 
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
   const [percForm, setPercForm] = useState({
-    name:'', professionalId: me.id, totalSessions: 10,
-    name: PERCORSO_OPTIONS[0], professionalId: me.id, totalSessions: 10,
-    expiryYMD:'', paid:false
-  })
+  name: PERCORSO_OPTIONS[0],
+  professionalId: me.id,
+  totalSessions: 10,
+  expiryYMD: '',
+  paid: false,
+})
+
   const [dtOpen, setDtOpen] = useState(false)
 
   const updatePercorsoInline = (userId, percorsoId, patch) => {
@@ -999,23 +1003,23 @@ function ProDashboard({
                       {/* form nuovo percorso */}
                       <div className="grid md:grid-cols-5 gap-3 mb-3">
                         - <Field label="Nome percorso">
--   <input className="rounded-xl border p-2"
--     value={percForm.name}
--     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
--     placeholder="Es. Logopedia" />
-- </Field>
-+ <Field label="Nome percorso">
-+   <select
-+     className="rounded-xl border p-2"
-+     value={percForm.name}
-+     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
-+   >
-+     <option value="" disabled>— seleziona —</option>
-+     {PERCORSO_OPTIONS.map(opt => (
-+       <option key={opt} value={opt}>{opt}</option>
-+     ))}
-+   </select>
-+ </Field>
+   <input className="rounded-xl border p-2"
+    value={percForm.name}
+     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
+     placeholder="Es. Logopedia" />
+ </Field>
+ <Field label="Nome percorso">
+   <select
+     className="rounded-xl border p-2"
+     value={percForm.name}
+     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
+   >
+     <option value="" disabled>— seleziona —</option>
+     {PERCORSO_OPTIONS.map(opt => (
+       <option key={opt} value={opt}>{opt}</option>
+     ))}
+   </select>
+ </Field>
 
 
                         <Field label="Professionista">
