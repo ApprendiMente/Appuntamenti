@@ -6,6 +6,38 @@ import { supabase, hasSupabase } from './lib/supabase'
 const PRO_AUTH = { username: 'professionista', password: 'apprendi2025' }
 import logoAM from './assets/logo-am.jpg'
 
+// ---- MERGE & TIMESTAMP UTILS ----
+const nowISO = () => new Date().toISOString()
+
+const indexById = (arr = []) => {
+  const m = new Map()
+  for (const x of arr || []) if (x && x.id) m.set(x.id, x)
+  return m
+}
+
+const mergeArraysById = (localArr = [], remoteArr = []) => {
+  // unione per id; se in futuro aggiungi 'updatedAt', puoi decidere in base al più recente
+  const m = indexById(remoteArr)
+  for (const x of localArr) m.set(x.id, { ...(m.get(x.id) || {}), ...x })
+  return Array.from(m.values())
+}
+
+const mergeSnapshots = (localSnap, remoteSnap) => ({
+  pros: mergeArraysById(localSnap.pros, remoteSnap.pros),
+  users: mergeArraysById(localSnap.users, remoteSnap.users),
+  deletedUsers: mergeArraysById(localSnap.deletedUsers, remoteSnap.deletedUsers)
+})
+
+function useDebouncedEffect(effect, deps, delay = 800) {
+  useEffect(() => {
+    const h = setTimeout(effect, delay)
+    return () => clearTimeout(h)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [...deps, delay])
+}
+// ---------------------------------
+
+
 const BRAND = { primary: 'var(--brand-primary)', secondary: 'var(--brand-secondary)', accent: 'var(--brand-accent)', bg: 'var(--brand-bg)', text: '#1A202C' }
 const PRO_COLORS = ['#0EA5E9','#22C55E','#F59E0B','#EF4444','#8B5CF6','#14B8A6','#EC4899','#6366F1','#84CC16','#06B6D4']
 const uid = () => Math.random().toString(36).slice(2, 9)
@@ -75,9 +107,11 @@ const fmtIt = (iso) => {
 }
 
 // storage
-const LS = { pros: 'appr_pros', users: 'appr_users', deleted: 'appr_deletedUsers' }
+const LS = { pros: 'appr_pros', users: 'appr_users', deletedUsers: 'appr_deletedUsers' }
 const loadLS = (k, f) => { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) : f } catch { return f } }
 const saveLS = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }
+
+const [deletedUsers, setDeletedUsers] = useState(() => loadLS(LS.deletedUsers, []))
 
 export default function App() {
   const [pros, setPros] = useState(() => loadLS(LS.pros, []))
@@ -104,6 +138,7 @@ useEffect(() => saveLS(LS.deleted, deletedUsers), [deletedUsers])
 
   useEffect(() => saveLS(LS.pros, pros), [pros])
   useEffect(() => saveLS(LS.users, users), [users])
+useEffect(() => saveLS(LS.deletedUsers, deletedUsers), [deletedUsers])
 
 // ===== Supabase sync (Option 2 MVP, safe) =====
 const TENANT_ID = 'default'
@@ -115,34 +150,78 @@ async function remoteLoad() {
   if (!hasSupabase) return null
   const { data, error } = await supabase
     .from('app_state')
-    .select('data')
+    .select('data, rev')
     .eq('id', TENANT_ID)
     .single()
   if (error) { console.warn('Supabase load error', error); return null }
-  return data?.data || null
+  return data // { data: {...}, rev: number }
 }
 
-async function remoteSave(snapshot) {
+async function remoteSaveCAS(snapshot, attempt = 0) {
   if (!hasSupabase) return
+  if (attempt > 2) return // evita loop infiniti
+
   try {
     savingRef.current = true
-    const toSave = { ...snapshot, rev: (rev || 0) + 1 }
-    const { error } = await supabase
+
+    // 1) prova update condizionato su rev (compare-and-swap)
+    const { data: updated, error: upErr } = await supabase
       .from('app_state')
-      .upsert({ id: TENANT_ID, data: toSave, updated_at: new Date().toISOString() }, { onConflict: 'id' })
-    if (error) console.warn('Supabase save error', error)
-    else {
-      setRev(r => r + 1)
+      .update({
+        data: snapshot,
+        rev: rev + 1,
+        updated_at: nowISO()
+      })
+      .eq('id', TENANT_ID)
+      .eq('rev', rev)
+      .select('data, rev')
+      .single()
+
+    if (!upErr && updated) {
+      setRev(updated.rev)
       lastAppliedRef.current = {
         pros: snapshot.pros || [],
         users: snapshot.users || [],
         deletedUsers: snapshot.deletedUsers || []
       }
+      return
     }
+
+    // 2) conflitto → ricarica, unisci, riprova
+    const { data: current, error: curErr } = await supabase
+      .from('app_state')
+      .select('data, rev')
+      .eq('id', TENANT_ID)
+      .single()
+
+    if (curErr || !current) {
+      console.warn('CAS reload error', curErr)
+      return
+    }
+
+    const remote = {
+      pros: current.data?.pros || [],
+      users: current.data?.users || [],
+      deletedUsers: current.data?.deletedUsers || []
+    }
+
+    const merged = mergeSnapshots(snapshot, remote)
+
+    // applica merge localmente
+    setPros(merged.pros)
+    setUsers(merged.users)
+    setDeletedUsers(merged.deletedUsers)
+    setRev(current.rev)
+    lastAppliedRef.current = merged
+
+    // riprova salvataggio con il merge
+    await remoteSaveCAS(merged, attempt + 1)
+
   } finally {
     setTimeout(() => { savingRef.current = false }, 200)
   }
 }
+
 
 const [hydrated, setHydrated] = useState(false)
 const initialPros = useRef(pros)
@@ -152,18 +231,22 @@ useEffect(() => {
   let channel = null
   ;(async () => {
     const remote = await remoteLoad()
-    if (remote) {
-      setPros(remote.pros || [])
-      setUsers(remote.users || [])
-      setDeletedUsers(remote.deletedUsers || [])
+    if (remote?.data) {
+      setPros(remote.data.pros || [])
+      setUsers(remote.data.users || [])
+      setDeletedUsers(remote.data.deletedUsers || [])
       setRev(typeof remote.rev === 'number' ? remote.rev : 0)
       lastAppliedRef.current = {
-        pros: remote.pros || [],
-        users: remote.users || [],
-        deletedUsers: remote.deletedUsers || []
+        pros: remote.data.pros || [],
+        users: remote.data.users || [],
+        deletedUsers: remote.data.deletedUsers || []
       }
-    } else if ((initialPros.current?.length || initialUsers.current?.length) && hasSupabase) {
-      await remoteSave({ pros: initialPros.current, users: initialUsers.current, deletedUsers })
+    } else if ((initialPros.current?.length || initialUsers.current?.length || (deletedUsers?.length)) && hasSupabase) {
+      await remoteSaveCAS({
+        pros: initialPros.current,
+        users: initialUsers.current,
+        deletedUsers: deletedUsers || []
+      })
     }
 
     if (hasSupabase && supabase?.channel) {
@@ -183,6 +266,7 @@ useEffect(() => {
                 users: next.users || [],
                 deletedUsers: next.deletedUsers || []
               }
+
               const applied = lastAppliedRef.current
               if (applied && JSON.stringify(applied) === JSON.stringify(incoming)) return
 
@@ -204,12 +288,14 @@ useEffect(() => {
 // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [])
 
-useEffect(() => {
+
+useDebouncedEffect(() => {
   if (!hasSupabase || !hydrated) return
   const snapshot = { pros, users, deletedUsers }
-  if (lastAppliedRef.current && JSON.stringify(lastAppliedRef.current) === JSON.stringify(snapshot)) return
-  remoteSave(snapshot)
-}, [pros, users, deletedUsers, hydrated])
+  if (lastAppliedRef.current &&
+      JSON.stringify(lastAppliedRef.current) === JSON.stringify(snapshot)) return
+  remoteSaveCAS(snapshot)
+}, [pros, users, deletedUsers, hydrated], 800)
 // ===== end Supabase sync =====
 
 
@@ -237,17 +323,30 @@ useEffect(() => {
   setUsers(prev => [...prev, u]); return u
 }
   function updateUser(u) { setUsers(prev => prev.map(x => x.id === u.id ? u : x)) }
+
 function deleteUser(userId) {
   setUsers(prev => {
-    const victim = prev.find(u => u.id === userId)
-    if (victim) {
-      setDeletedUsers(d => [{ ...victim, deletedAt: new Date().toISOString() }, ...d])
+    const u = prev.find(x => x.id === userId)
+    const rest = prev.filter(x => x.id !== userId)
+    if (u) {
+      setDeletedUsers(d => [{ ...u, deletedAt: nowISO() }, ...d])
     }
-    const rest = prev.filter(u => u.id !== userId)
-    if (currentUserId === userId) setCurrentUserId(null)
     return rest
   })
+  if (currentUserId === userId) setCurrentUserId(null)
 }
+
+function restoreUser(userId) {
+  setDeletedUsers(prev => {
+    const idx = prev.findIndex(u => u.id === userId)
+    if (idx === -1) return prev
+    const u = prev[idx]
+    setUsers(us => [{ ...u, deletedAt: undefined }, ...us])
+    const copy = [...prev]; copy.splice(idx, 1)
+    return copy
+  })
+}
+
 function restoreDeletedUser(userId) {
   setDeletedUsers(prev => {
     const rec = prev.find(u => u.id === userId)
