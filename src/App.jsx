@@ -37,6 +37,16 @@ function useDebouncedEffect(effect, deps, delay = 800) {
 
 const BRAND = { primary: 'var(--brand-primary)', secondary: 'var(--brand-secondary)', accent: 'var(--brand-accent)', bg: 'var(--brand-bg)', text: '#1A202C' }
 const PRO_COLORS = ['#0EA5E9','#22C55E','#F59E0B','#EF4444','#8B5CF6','#14B8A6','#EC4899','#6366F1','#84CC16','#06B6D4']
+const PERCORSO_OPTIONS = [
+  'Supporto Psicologico',
+  'Parent Training',
+  'Gruppo di Studio',
+  'Individuale Compiti',
+  'Corso Metodo',
+  'Logopedia',
+  'Neuropsicomotricità',
+]
+
 const uid = () => Math.random().toString(36).slice(2, 9)
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
 
@@ -741,18 +751,27 @@ function ProDashboard({
   ), [users, me.id, showAll])
 
   const prepared = useMemo(() => {
-    const needle = q.trim().toLowerCase()
-    const rows = baseUsers.map(u => {
-      const { first, last } = splitNameLocal(u.fullName)
-      const key = `${(last||'').toLowerCase()} ${(first||'').toLowerCase()}`
-      const shown = displaySurnameFirstLocal(u.fullName)
-      const codeStr = String(u.code || '')
-      const match = !needle || (last||'').toLowerCase().includes(needle) || codeStr.includes(needle)
-      return { u, key, shown, codeStr, match }
-    }).filter(r => r.match)
-      .sort((a,b) => a.key.localeCompare(b.key, 'it'))
-    return rows
-  }, [baseUsers, q])
+  const needle = q.trim().toLowerCase()
+  const rows = baseUsers.map(u => {
+    const { first, last } = splitNameLocal(u.fullName)
+    const full = String(u.fullName || '').toLowerCase()
+    const percNames = (u.percorsi || []).map(p => String(p.name || '').toLowerCase())
+    const key = `${(last||'').toLowerCase()} ${(first||'').toLowerCase()}`
+    const shown = displaySurnameFirstLocal(u.fullName)
+    const codeStr = String(u.code || '')
+    const match =
+      !needle ||
+      (last||'').toLowerCase().includes(needle) ||
+      (first||'').toLowerCase().includes(needle) ||
+      full.includes(needle) ||
+      percNames.some(n => n.includes(needle)) ||
+      codeStr.includes(needle)
+    return { u, key, shown, codeStr, match }
+  }).filter(r => r.match)
+    .sort((a,b) => a.key.localeCompare(b.key, 'it'))
+  return rows
+}, [baseUsers, q])
+
 
   const [selectedUserId, setSelectedUserId] = useState(null)
   useEffect(() => {
@@ -767,6 +786,7 @@ function ProDashboard({
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
   const [percForm, setPercForm] = useState({
     name:'', professionalId: me.id, totalSessions: 10,
+    name: PERCORSO_OPTIONS[0], professionalId: me.id, totalSessions: 10,
     expiryYMD:'', paid:false
   })
   const [dtOpen, setDtOpen] = useState(false)
@@ -880,7 +900,7 @@ function ProDashboard({
 
                 {/* Cerca */}
                 <div className="mb-3">
-                  <Field label="Cerca (cognome o codice)">
+                  <Field label="Cerca (cognome, nome, percorso o codice)">
                     <input
                       className="rounded-xl border p-2 w-full"
                       placeholder="Es. Rossi oppure 123456"
@@ -947,30 +967,56 @@ function ProDashboard({
                     </div>
 
                     {/* campi base utente */}
-                    <div className="grid md:grid-cols-2 gap-3">
-                      <Field label="Mail">
-                        <input type="email" className="rounded-xl border p-2"
-                          value={selectedUser.email || ''}
-                          onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })} />
-                      </Field>
-                      <Field label="Cellulare">
-                        <input className="rounded-xl border p-2"
-                          value={selectedUser.phone || ''}
-                          onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })} />
-                      </Field>
-                    </div>
+<div className="grid md:grid-cols-3 gap-3">
+  <Field label="Nome e Cognome">
+    <input
+      className="rounded-xl border p-2"
+      value={selectedUser.fullName || ''}
+      onChange={(e)=> onUpdateUser({ ...selectedUser, fullName: e.target.value })}
+    />
+  </Field>
+  <Field label="Mail">
+    <input
+      type="email"
+      className="rounded-xl border p-2"
+      value={selectedUser.email || ''}
+      onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })}
+    />
+  </Field>
+  <Field label="Cellulare">
+    <input
+      className="rounded-xl border p-2"
+      value={selectedUser.phone || ''}
+      onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })}
+    />
+  </Field>
+</div>
+
 
                     <div className="border-t pt-3">
                       <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
 
                       {/* form nuovo percorso */}
                       <div className="grid md:grid-cols-5 gap-3 mb-3">
-                        <Field label="Nome percorso">
-                          <input className="rounded-xl border p-2"
-                            value={percForm.name}
-                            onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
-                            placeholder="Es. Logopedia" />
-                        </Field>
+                        - <Field label="Nome percorso">
+-   <input className="rounded-xl border p-2"
+-     value={percForm.name}
+-     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
+-     placeholder="Es. Logopedia" />
+- </Field>
++ <Field label="Nome percorso">
++   <select
++     className="rounded-xl border p-2"
++     value={percForm.name}
++     onChange={(e)=>setPercForm({...percForm, name:e.target.value})}
++   >
++     <option value="" disabled>— seleziona —</option>
++     {PERCORSO_OPTIONS.map(opt => (
++       <option key={opt} value={opt}>{opt}</option>
++     ))}
++   </select>
++ </Field>
+
 
                         <Field label="Professionista">
                           <select className="rounded-xl border p-2"
@@ -1029,22 +1075,62 @@ function ProDashboard({
                                 <span className="ml-2 font-medium">{percorso.paid ? 'Percorso saldato' : 'Percorso da saldare'}</span>
                               </div>
 
-                              {/* modifica scadenza / saldato */}
-                              <div className="mt-2 grid md:grid-cols-3 gap-3">
-                                <Field label="Scadenza percorso">
-                                  <input type="date" className="rounded-xl border p-2"
-                                    value={percorso.expiryYMD || ''}
-                                    onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })} />
-                                </Field>
-                                <div className="flex items-end">
-                                  <label className="inline-flex items-center gap-2 text-sm">
-                                    <input type="checkbox"
-                                      checked={!!percorso.paid}
-                                      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })} />
-                                    Percorso saldato
-                                  </label>
-                                </div>
-                              </div>
+                              {/* modifica percorso: nome, totale, scadenza, saldo */}
+<div className="mt-2 grid md:grid-cols-5 gap-3">
+  {/* Nome percorso (tendina) */}
+  <Field label="Percorso">
+    <select
+      className="rounded-xl border p-2"
+      value={percorso.name}
+      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { name: e.target.value })}
+    >
+      {PERCORSO_OPTIONS.map(opt => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
+  </Field>
+
+  {/* Totale incontri (ricalcola residuo in base a storico) */}
+  <Field label="Totale incontri">
+    <input
+      type="number"
+      className="rounded-xl border p-2"
+      value={percorso.totalSessions}
+      onChange={(e)=>{
+        const newTotal = Math.max(0, Number(e.target.value || 0))
+        const done = (percorso.history || []).length
+        const newRem = Math.max(0, newTotal - done) // NON perdi sessioni pianificate o svolte
+        updatePercorsoInline(selectedUser.id, percorso.id, {
+          totalSessions: newTotal,
+          remainingSessions: newRem
+        })
+      }}
+    />
+  </Field>
+
+  {/* Scadenza */}
+  <Field label="Scadenza percorso">
+    <input
+      type="date"
+      className="rounded-xl border p-2"
+      value={percorso.expiryYMD || ''}
+      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })}
+    />
+  </Field>
+
+  {/* Pagato / da saldare */}
+  <div className="flex items-end">
+    <label className="inline-flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={!!percorso.paid}
+        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })}
+      />
+      Percorso saldato
+    </label>
+  </div>
+</div>
+
 
                               <div className="mt-3">
                                 <Button onClick={()=> setDtOpen(true)}>Scegli data/ora</Button>
