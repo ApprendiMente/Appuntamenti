@@ -737,26 +737,17 @@ const [percForm, setPercForm] = useState({
   {/* Colonna UTENTI – 30% */}
   <div className="md:col-span-3">
     <Card accent={me.color}>
-      {/* ... LISTA UTENTI ... */}
+      {/* --- LISTA UTENTI (incolla qui il contenuto della Card lista utenti) --- */}
     </Card>
   </div>
 
   {/* Colonna PERCORSI – 70% */}
   <div className="md:col-span-7">
     <Card accent={me.color}>
-      {/* ... DETTAGLIO UTENTE + PERCORSI ... */}
+      {/* --- DETTAGLIO UTENTE + PERCORSI (incolla qui il contenuto della Card dettagli) --- */}
     </Card>
   </div>
 </div>
-<Card accent={me.color} className="md:col-span-1">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">{showAll ? 'Tutti gli utenti' : 'I miei utenti'}</h3>
-                <div className="w-56">
-                  <input className="w-full rounded-xl border p-2 text-sm"
-                         placeholder="Cerca per cognome o codice"
-                         value={q} onChange={(e)=> setQ(e.target.value)} />
-                </div>
-              </div>
 
               <div className="space-y-2">
                 {prepared.map(r => (
@@ -945,7 +936,6 @@ const [percForm, setPercForm] = useState({
               )}
             </Card>
           </div>
-        </>
       )}
     </div>
   )
