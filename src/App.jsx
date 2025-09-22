@@ -725,10 +725,12 @@ function ProIdentity({ pros, onCreate, onSelect, onBack, onUpdate, onDelete }) {
 function ProDashboard({
   pros, me, users,
   onLogout, onCreateUser, onDeleteUser, onUpdateUser,
-  onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned, onRegenerateCode,
-  onBack , onDeleteHistory,
+  onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned,
+  onRegenerateCode, // ok se non usato
+  onBack, onDeleteHistory,
   deletedUsers = [], onRestoreUser
 }) {
+  // helper locali
   const splitNameLocal = (full='') => {
     const parts = String(full).trim().split(/\s+/)
     if (parts.length === 0) return { first:'', last:'' }
@@ -743,36 +745,38 @@ function ProDashboard({
   }
   const fmtYMDtoIt = (ymd) => fmtYMD(ymd) || '-'
 
+  // vista
   const [view, setView] = useState('list') // 'list' | 'trash'
+
+  // filtro + ricerca
   const [showAll, setShowAll] = useState(false)
-  const [q, setQ] = useState('') // cerca per cognome o codice
+  const [q, setQ] = useState('')
 
   const baseUsers = useMemo(() => (
     showAll ? users : users.filter(u => (u.percorsi || []).some(p => p.professionalId === me.id))
   ), [users, me.id, showAll])
 
   const prepared = useMemo(() => {
-  const needle = q.trim().toLowerCase()
-  const rows = baseUsers.map(u => {
-    const { first, last } = splitNameLocal(u.fullName)
-    const full = String(u.fullName || '').toLowerCase()
-    const percNames = (u.percorsi || []).map(p => String(p.name || '').toLowerCase())
-    const key = `${(last||'').toLowerCase()} ${(first||'').toLowerCase()}`
-    const shown = displaySurnameFirstLocal(u.fullName)
-    const codeStr = String(u.code || '')
-    const match =
-      !needle ||
-      (last||'').toLowerCase().includes(needle) ||
-      (first||'').toLowerCase().includes(needle) ||
-      full.includes(needle) ||
-      percNames.some(n => n.includes(needle)) ||
-      codeStr.includes(needle)
-    return { u, key, shown, codeStr, match }
-  }).filter(r => r.match)
-    .sort((a,b) => a.key.localeCompare(b.key, 'it'))
-  return rows
-}, [baseUsers, q])
-
+    const needle = q.trim().toLowerCase()
+    const rows = baseUsers.map(u => {
+      const { first, last } = splitNameLocal(u.fullName)
+      const full = String(u.fullName || '').toLowerCase()
+      const percNames = (u.percorsi || []).map(p => String(p.name || '').toLowerCase())
+      const key = `${(last||'').toLowerCase()} ${(first||'').toLowerCase()}`
+      const shown = displaySurnameFirstLocal(u.fullName)
+      const codeStr = String(u.code || '')
+      const match =
+        !needle ||
+        (last||'').toLowerCase().includes(needle) ||
+        (first||'').toLowerCase().includes(needle) ||
+        full.includes(needle) ||
+        percNames.some(n => n.includes(needle)) ||
+        codeStr.includes(needle)
+      return { u, key, shown, codeStr, match }
+    }).filter(r => r.match)
+      .sort((a,b) => a.key.localeCompare(b.key, 'it'))
+    return rows
+  }, [baseUsers, q])
 
   const [selectedUserId, setSelectedUserId] = useState(null)
   useEffect(() => {
@@ -783,18 +787,22 @@ function ProDashboard({
   }, [prepared, selectedUserId])
 
   const selectedUser = prepared.find(r => r.u.id === selectedUserId)?.u || null
-  const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
-  const [percForm, setPercForm] = useState({
-  name: PERCORSO_OPTIONS[0],
-  professionalId: me.id,
-  totalSessions: 10,
-  expiryYMD: '',
-  paid: false
-})
 
+  // form utente
+  const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
+
+  // form percorso (tendina + scadenza + saldato)
+  const [percForm, setPercForm] = useState({
+    name: PERCORSO_OPTIONS[0],
+    professionalId: me.id,
+    totalSessions: 10,
+    expiryYMD: '',
+    paid: false
+  })
 
   const [dtOpen, setDtOpen] = useState(false)
 
+  // update inline percorso per utente selezionato
   const updatePercorsoInline = (userId, percorsoId, patch) => {
     const u = users.find(x => x.id === userId); if (!u) return
     const nextPercorsi = (u.percorsi || []).map(p => p.id === percorsoId ? { ...p, ...patch } : p)
@@ -954,105 +962,114 @@ function ProDashboard({
                   <div className="text-sm text-gray-500">Seleziona un utente.</div>
                 ) : (
                   <div className="space-y-4">
+                    {/* Header utente: mobile 2 righe */}
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-  {/* riga 1: solo Nome Cognome */}
-  <h3 className="text-lg font-semibold truncate">
-    {displaySurnameFirst(selectedUser.fullName)}
-  </h3>
+                      {/* riga 1: solo Nome Cognome */}
+                      <h3 className="text-lg font-semibold truncate">
+                        {displaySurnameFirst(selectedUser.fullName)}
+                      </h3>
 
-  {/* riga 2: Codice + pulsanti (va sotto su mobile, affiancata da md in su) */}
-<div className="flex flex-wrap items-center gap-2">
-  <span className="text-xs text-gray-500">Codice</span>
-  <input
-    className="rounded-xl border p-2 font-mono w-28 text-center shrink-0"
-    value={selectedUser.code}
-    readOnly
-  />
-  <Button
-    variant="ghost"
-    onClick={()=> {
-      const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
-      if (v==null) return
-      if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
-      if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
-      onUpdateUser({ ...selectedUser, code: v })
-    }}
-  >
-    Modifica
-  </Button>
-</div>
+                      {/* riga 2: codice + pulsante Modifica */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-gray-500">Codice</span>
+                        <input
+                          className="rounded-xl border p-2 font-mono w-28 text-center shrink-0"
+                          value={selectedUser.code}
+                          readOnly
+                        />
+                        <Button
+                          variant="ghost"
+                          onClick={()=> {
+                            const v = prompt('Inserisci nuovo codice a 6 cifre (solo numeri):', '')
+                            if (v==null) return
+                            if (!/^\d{6}$/.test(v)) return alert('Inserisci 6 cifre.')
+                            if (users.some(u => u.code === v && u.id !== selectedUser.id)) return alert('Codice già in uso.')
+                            onUpdateUser({ ...selectedUser, code: v })
+                          }}
+                        >
+                          Modifica
+                        </Button>
+                      </div>
+                    </div>
 
                     {/* campi base utente */}
-<div className="grid md:grid-cols-3 gap-3">
-  <Field label="Nome e Cognome">
-    <input
-      className="rounded-xl border p-2"
-      value={selectedUser.fullName || ''}
-      onChange={(e)=> onUpdateUser({ ...selectedUser, fullName: e.target.value })}
-    />
-  </Field>
-  <Field label="Mail">
-    <input
-      type="email"
-      className="rounded-xl border p-2"
-      value={selectedUser.email || ''}
-      onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })}
-    />
-  </Field>
-  <Field label="Cellulare">
-    <input
-      className="rounded-xl border p-2"
-      value={selectedUser.phone || ''}
-      onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })}
-    />
-  </Field>
-</div>
-
+                    <div className="grid md:grid-cols-3 gap-3">
+                      <Field label="Nome e Cognome">
+                        <input
+                          className="rounded-xl border p-2"
+                          value={selectedUser.fullName || ''}
+                          onChange={(e)=> onUpdateUser({ ...selectedUser, fullName: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Mail">
+                        <input
+                          type="email"
+                          className="rounded-xl border p-2"
+                          value={selectedUser.email || ''}
+                          onChange={(e)=> onUpdateUser({ ...selectedUser, email: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Cellulare">
+                        <input
+                          className="rounded-xl border p-2"
+                          value={selectedUser.phone || ''}
+                          onChange={(e)=> onUpdateUser({ ...selectedUser, phone: e.target.value })}
+                        />
+                      </Field>
+                    </div>
 
                     <div className="border-t pt-3">
                       <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
 
                       {/* form nuovo percorso */}
                       <div className="grid md:grid-cols-5 gap-3 mb-3">
-                      <Field label="Nome percorso">
-  <select
-    className="rounded-xl border p-2"
-    value={percForm.name}
-    onChange={(e)=> setPercForm({ ...percForm, name: e.target.value })}
-  >
-    {PERCORSO_OPTIONS.map(opt => (
-      <option key={opt} value={opt}>{opt}</option>
-    ))}
-  </select>
-</Field>
-
-
+                        <Field label="Nome percorso">
+                          <select
+                            className="rounded-xl border p-2"
+                            value={percForm.name}
+                            onChange={(e)=> setPercForm({ ...percForm, name: e.target.value })}
+                          >
+                            {PERCORSO_OPTIONS.map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </Field>
 
                         <Field label="Professionista">
-                          <select className="rounded-xl border p-2"
+                          <select
+                            className="rounded-xl border p-2"
                             value={percForm.professionalId}
-                            onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
+                            onChange={(e)=> setPercForm({ ...percForm, professionalId: e.target.value })}
+                          >
                             {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
                         </Field>
 
                         <Field label="Numero di incontri (totale)">
-                          <input type="number" className="rounded-xl border p-2"
+                          <input
+                            type="number"
+                            className="rounded-xl border p-2"
                             value={percForm.totalSessions}
-                            onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} />
+                            onChange={(e)=> setPercForm({ ...percForm, totalSessions: e.target.value })}
+                          />
                         </Field>
 
                         <Field label="Scadenza percorso">
-                          <input type="date" className="rounded-xl border p-2"
+                          <input
+                            type="date"
+                            className="rounded-xl border p-2"
                             value={percForm.expiryYMD}
-                            onChange={(e)=>setPercForm({...percForm, expiryYMD: e.target.value})} />
+                            onChange={(e)=> setPercForm({ ...percForm, expiryYMD: e.target.value })}
+                          />
                         </Field>
 
                         <div className="flex items-end">
                           <label className="inline-flex items-center gap-2 text-sm">
-                            <input type="checkbox"
+                            <input
+                              type="checkbox"
                               checked={percForm.paid}
-                              onChange={(e)=> setPercForm({...percForm, paid: e.target.checked})} />
+                              onChange={(e)=> setPercForm({ ...percForm, paid: e.target.checked })}
+                            />
                             Percorso saldato
                           </label>
                         </div>
@@ -1060,9 +1077,15 @@ function ProDashboard({
 
                       <div className="flex items-end">
                         <Button onClick={()=>{
-                          if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
+                          if (!percForm.name.trim()) return alert('Inserisci il nome del percorso')
                           onAddPercorso(selectedUser.id, percForm)
-                          setPercForm({ name:'', professionalId: percForm.professionalId, totalSessions: 10, expiryYMD:'', paid:false })
+                          setPercForm({
+                            name: PERCORSO_OPTIONS[0],
+                            professionalId: percForm.professionalId,
+                            totalSessions: 10,
+                            expiryYMD: '',
+                            paid: false
+                          })
                         }}>Aggiungi percorso</Button>
                       </div>
 
@@ -1085,61 +1108,60 @@ function ProDashboard({
                               </div>
 
                               {/* modifica percorso: nome, totale, scadenza, saldo */}
-<div className="mt-2 grid md:grid-cols-5 gap-3">
-  {/* Nome percorso (tendina) */}
-  <Field label="Percorso">
-    <select
-      className="rounded-xl border p-2"
-      value={percorso.name}
-      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { name: e.target.value })}
-    >
-      {PERCORSO_OPTIONS.map(opt => (
-        <option key={opt} value={opt}>{opt}</option>
-      ))}
-    </select>
-  </Field>
+                              <div className="mt-2 grid md:grid-cols-5 gap-3">
+                                {/* Nome percorso (tendina) */}
+                                <Field label="Percorso">
+                                  <select
+                                    className="rounded-xl border p-2"
+                                    value={percorso.name}
+                                    onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { name: e.target.value })}
+                                  >
+                                    {PERCORSO_OPTIONS.map(opt => (
+                                      <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                  </select>
+                                </Field>
 
-  {/* Totale incontri (ricalcola residuo in base a storico) */}
-  <Field label="Totale incontri">
-    <input
-      type="number"
-      className="rounded-xl border p-2"
-      value={percorso.totalSessions}
-      onChange={(e)=>{
-        const newTotal = Math.max(0, Number(e.target.value || 0))
-        const done = (percorso.history || []).length
-        const newRem = Math.max(0, newTotal - done) // NON perdi sessioni pianificate o svolte
-        updatePercorsoInline(selectedUser.id, percorso.id, {
-          totalSessions: newTotal,
-          remainingSessions: newRem
-        })
-      }}
-    />
-  </Field>
+                                {/* Totale incontri (ricalcola residuo in base a storico) */}
+                                <Field label="Totale incontri">
+                                  <input
+                                    type="number"
+                                    className="rounded-xl border p-2"
+                                    value={percorso.totalSessions}
+                                    onChange={(e)=>{
+                                      const newTotal = Math.max(0, Number(e.target.value || 0))
+                                      const done = (percorso.history || []).length
+                                      const newRem = Math.max(0, newTotal - done)
+                                      updatePercorsoInline(selectedUser.id, percorso.id, {
+                                        totalSessions: newTotal,
+                                        remainingSessions: newRem
+                                      })
+                                    }}
+                                  />
+                                </Field>
 
-  {/* Scadenza */}
-  <Field label="Scadenza percorso">
-    <input
-      type="date"
-      className="rounded-xl border p-2"
-      value={percorso.expiryYMD || ''}
-      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })}
-    />
-  </Field>
+                                {/* Scadenza */}
+                                <Field label="Scadenza percorso">
+                                  <input
+                                    type="date"
+                                    className="rounded-xl border p-2"
+                                    value={percorso.expiryYMD || ''}
+                                    onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })}
+                                  />
+                                </Field>
 
-  {/* Pagato / da saldare */}
-  <div className="flex items-end">
-    <label className="inline-flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        checked={!!percorso.paid}
-        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })}
-      />
-      Percorso saldato
-    </label>
-  </div>
-</div>
-
+                                {/* Pagato / da saldare */}
+                                <div className="flex items-end">
+                                  <label className="inline-flex items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!percorso.paid}
+                                      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })}
+                                    />
+                                    Percorso saldato
+                                  </label>
+                                </div>
+                              </div>
 
                               <div className="mt-3">
                                 <Button onClick={()=> setDtOpen(true)}>Scegli data/ora</Button>
@@ -1193,6 +1215,7 @@ function ProDashboard({
     </div>
   )
 }
+
 
 function EditableSessionRow({ initialIso, onEdit, onDelete, onConfirm, hideConfirm, hideDelete, deleteMsg }) {
   const [editing, setEditing] = useState(false)
