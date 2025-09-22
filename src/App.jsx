@@ -733,22 +733,23 @@ const [percForm, setPercForm] = useState({
             </div>
           </Card>
 
+{/* === WRAPPER 30/70 START === */}
 <div className="grid grid-cols-1 md:grid-cols-10 gap-6">
   {/* Colonna UTENTI – 30% */}
   <div className="md:col-span-3">
     <Card accent={me.color}>
-      {/* --- LISTA UTENTI (incolla qui il contenuto della Card lista utenti) --- */}
+      {/* --- QUI rimane il contenuto della tua Card “Tutti gli utenti / I miei utenti” --- */}
     </Card>
   </div>
 
   {/* Colonna PERCORSI – 70% */}
   <div className="md:col-span-7">
     <Card accent={me.color}>
-      {/* --- DETTAGLIO UTENTE + PERCORSI (incolla qui il contenuto della Card dettagli) --- */}
+      {/* --- QUI rimane il contenuto della tua Card dettagli utente + percorsi --- */}
     </Card>
   </div>
 </div>
-
+{/* === WRAPPER 30/70 END === */}
               <div className="space-y-2">
                 {prepared.map(r => (
                   <div key={r.u.id} className={"rounded-xl border p-3 " + (selectedUserId===r.u.id ? 'bg-slate-50':'')}>
