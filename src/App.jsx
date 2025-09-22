@@ -766,8 +766,8 @@ function ProDashboard({
 
           {/* === WRAPPER 30/70 START === */}
           <div className="grid grid-cols-1 md:grid-cols-10 gap-6">
-            {/* Colonna UTENTI – 30% */}
-            <div className="md:col-span-3">
+            {/* Colonna UTENTI – 40% */}
+            <div className="md:col-span-4">
               <Card accent={me.color}>
                 <h3 className="text-lg font-semibold mb-3">
                   {showAll ? 'Tutti gli utenti' : 'I miei utenti'}
@@ -818,8 +818,8 @@ function ProDashboard({
               </Card>
             </div>
 
-            {/* Colonna PERCORSI – 70% */}
-            <div className="md:col-span-7">
+            {/* Colonna PERCORSI – 60% */}
+            <div className="md:col-span-6">
               <Card accent={me.color}>
                 {!selectedUser ? (
                   <div className="text-sm text-gray-500">Seleziona un utente.</div>
