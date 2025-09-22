@@ -733,7 +733,21 @@ const [percForm, setPercForm] = useState({
             </div>
           </Card>
 
-          <div className="grid md:grid-cols-3 gap-6">
+<div className="grid grid-cols-1 md:grid-cols-10 gap-6">
+  {/* Colonna UTENTI – 30% */}
+  <div className="md:col-span-3">
+    <Card accent={me.color}>
+      {/* ... LISTA UTENTI ... */}
+    </Card>
+  </div>
+
+  {/* Colonna PERCORSI – 70% */}
+  <div className="md:col-span-7">
+    <Card accent={me.color}>
+      {/* ... DETTAGLIO UTENTE + PERCORSI ... */}
+    </Card>
+  </div>
+</div>
 <Card accent={me.color} className="md:col-span-1">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold">{showAll ? 'Tutti gli utenti' : 'I miei utenti'}</h3>
