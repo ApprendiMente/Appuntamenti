@@ -5,7 +5,6 @@ import logoAM from './assets/logo-am.jpg'
 // CONFIG
 const PRO_AUTH = { username: 'professionista', password: 'apprendi2025' }
 
-
 // ---- MERGE & TIMESTAMP UTILS ----
 const nowISO = () => new Date().toISOString()
 
@@ -51,7 +50,7 @@ const PERCORSO_OPTIONS = [
 const uid = () => Math.random().toString(36).slice(2, 9)
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
 
-// ---- Helpers nomi (Cognome Nome) + date it ----
+// ---- Helpers nomi + date ----
 function splitName(full) {
   const parts = String(full || '').trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return { first: '', last: '' }
@@ -124,7 +123,7 @@ const saveLS = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)) } cat
 export default function App() {
   const [pros, setPros] = useState(() => loadLS(LS.pros, []))
   const [users, setUsers] = useState(() => loadLS(LS.users, []))
-  const [deletedUsers, setDeletedUsers] = useState(() => loadLS(LS.deletedUsers, [])) // ✅ dentro App()
+  const [deletedUsers, setDeletedUsers] = useState(() => loadLS(LS.deletedUsers, []))
 
   const [role, setRole] = useState(null)
   const [authOk, setAuthOk] = useState(false)
@@ -160,7 +159,7 @@ export default function App() {
       .eq('id', TENANT_ID)
       .single()
     if (error) { console.warn('Supabase load error', error); return null }
-    return data // { data: {...}, rev: number }
+    return data
   }
 
   async function remoteSaveCAS(snapshot, attempt = 0) {
@@ -430,38 +429,14 @@ export default function App() {
     }))
   }
 
-  // --- injected: professional update/delete and deleteHistorySession ---
-  function updateProfessional(id, updates) {
-    setPros(prev => {
-      const nameTo = (updates.name ?? '').trim()
-      if (nameTo) {
-        const exists = prev.find(p => p.id !== id && p.name.trim().toLowerCase() === nameTo.toLowerCase())
-        if (exists) { alert('Esiste già un professionista con questo nome.'); return prev }
-      }
-      return prev.map(p => p.id === id ? { ...p, ...updates, name: (updates.name ?? p.name).trim(), email: (updates.email ?? p.email).trim() } : p)
-    })
-  }
-
-  function deleteProfessional(id) {
-    const used = users.some(u => (u.percorsi||[]).some(per => per.professionalId === id))
-    if (used) { alert('Questo professionista è associato ad almeno un percorso. Sposta o elimina quei percorsi prima di cancellarlo.'); return }
-    setPros(prev => prev.filter(p => p.id !== id))
-    if (currentProId === id) setCurrentProId(null)
-  }
-
-  function deleteHistorySession(userId, percorsoId, sessionId) {
+  function deletePercorso(userId, percorsoId) {
     setUsers(prev => prev.map(u => {
       if (u.id !== userId) return u
-      const percorsi = u.percorsi.map(p => {
-        if (p.id!==percorsoId) return p
-        const maxTot = Number(p.totalSessions) || 0
-        const nextRem = Math.min(maxTot, (p.remainingSessions||0)+1)
-        return { ...p, history: p.history.filter(s => s.id !== sessionId), remainingSessions: Math.min(Math.max(nextRem, 0), maxTot) }
-      })
-      return { ...u, percorsi }
+      const nextPercorsi = (u.percorsi || []).filter(p => p.id !== percorsoId)
+      return { ...u, percorsi: nextPercorsi }
     }))
   }
-  // --- end injected ---
+  // --- end logic ---
 
   return (
     <div className="min-h-screen" style={{ background: BRAND.bg, color: BRAND.text }}>
@@ -477,8 +452,20 @@ export default function App() {
             onCreate={(name,email)=>{ const p = createProfessional(name,email); setCurrentProId(p.id)}}
             onSelect={(id)=> setCurrentProId(id)}
             onBack={()=>{ setAuthOk(false) }}
-            onUpdate={updateProfessional}
-            onDelete={deleteProfessional}
+            onUpdate={(id, updates)=>setPros(prev=>{
+              const nameTo = (updates.name ?? '').trim()
+              if (nameTo) {
+                const exists = prev.find(p => p.id !== id && p.name.trim().toLowerCase() === nameTo.toLowerCase())
+                if (exists) { alert('Esiste già un professionista con questo nome.'); return prev }
+              }
+              return prev.map(p => p.id === id ? { ...p, ...updates, name: (updates.name ?? p.name).trim(), email: (updates.email ?? p.email).trim() } : p)
+            })}
+            onDelete={(id)=>{
+              const used = users.some(u => (u.percorsi||[]).some(per => per.professionalId === id))
+              if (used) { alert('Questo professionista è associato ad almeno un percorso. Sposta o elimina quei percorsi prima di cancellarlo.'); return }
+              setPros(prev => prev.filter(p => p.id !== id))
+              if (currentProId === id) setCurrentProId(null)
+            }}
           />
         )}
 
@@ -487,8 +474,20 @@ export default function App() {
             pros={pros}
             me={currentPro}
             users={users}
-            onUpdateProfessional={updateProfessional}
-            onDeleteProfessional={deleteProfessional}
+            onUpdateProfessional={(id, updates)=>setPros(prev=>{
+              const nameTo = (updates.name ?? '').trim()
+              if (nameTo) {
+                const exists = prev.find(p => p.id !== id && p.name.trim().toLowerCase() === nameTo.toLowerCase())
+                if (exists) { alert('Esiste già un professionista con questo nome.'); return prev }
+              }
+              return prev.map(p => p.id === id ? { ...p, ...updates, name: (updates.name ?? p.name).trim(), email: (updates.email ?? p.email).trim() } : p)
+            })}
+            onDeleteProfessional={(id)=>{
+              const used = users.some(u => (u.percorsi||[]).some(per => per.professionalId === id))
+              if (used) { alert('Questo professionista è associato ad almeno un percorso. Sposta o elimina quei percorsi prima di cancellarlo.'); return }
+              setPros(prev => prev.filter(p => p.id !== id))
+              if (currentProId === id) setCurrentProId(null)
+            }}
             onLogout={()=>{ setCurrentProId(null); setAuthOk(false) }}
             onCreateUser={createUser}
             onDeleteUser={deleteUser}
@@ -498,11 +497,24 @@ export default function App() {
             onConfirm={confirmSession}
             onEditSession={editSessionDate}
             onDeletePlanned={deletePlannedSession}
-            onDeleteHistory={deleteHistorySession}
+            onDeleteHistory={(userId, percorsoId, sessionId)=>{
+              setUsers(prev => prev.map(u => {
+                if (u.id !== userId) return u
+                const percorsi = u.percorsi.map(p => {
+                  if (p.id!==percorsoId) return p
+                  const maxTot = Number(p.totalSessions) || 0
+                  const nextRem = Math.min(maxTot, (p.remainingSessions||0)+1)
+                  return { ...p, history: p.history.filter(s => s.id !== sessionId), remainingSessions: Math.min(Math.max(nextRem, 0), maxTot) }
+                })
+                return { ...u, percorsi }
+              }))
+            }}
             onRegenerateCode={regenerateCode}
             onBack={()=> setCurrentProId(null)}
             deletedUsers={deletedUsers}
             onRestoreUser={restoreDeletedUser}
+            onUpdatePercorso={updatePercorso}
+            onDeletePercorso={deletePercorso}
           />
         )}
 
@@ -553,7 +565,7 @@ function Button({ children, onClick, variant='primary', disabled, title }) {
 }
 function Field({ label, children }) { return (<label className="flex flex-col gap-1 text-sm"><span className="font-medium text-gray-700">{label}</span>{children}</label>) }
 
-// DateTime picker modal: input type="date" + 30-min slots grid
+// DateTime picker modal
 function DateTimeModal({ open, onClose, onConfirm }) {
   const [ymd, setYmd] = useState('')
   const [slot, setSlot] = useState('') // 'HH-MM'
@@ -725,12 +737,11 @@ function ProIdentity({ pros, onCreate, onSelect, onBack, onUpdate, onDelete }) {
 function ProDashboard({
   pros, me, users,
   onLogout, onCreateUser, onDeleteUser, onUpdateUser,
-  onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned,
-  onRegenerateCode, // ok se non usato
-  onBack, onDeleteHistory,
-  deletedUsers = [], onRestoreUser
+  onAddPercorso, onPlan, onConfirm, onEditSession, onDeletePlanned, onRegenerateCode,
+  onBack , onDeleteHistory,
+  deletedUsers = [], onRestoreUser,
+  onUpdatePercorso, onDeletePercorso
 }) {
-  // helper locali
   const splitNameLocal = (full='') => {
     const parts = String(full).trim().split(/\s+/)
     if (parts.length === 0) return { first:'', last:'' }
@@ -745,10 +756,7 @@ function ProDashboard({
   }
   const fmtYMDtoIt = (ymd) => fmtYMD(ymd) || '-'
 
-  // vista
   const [view, setView] = useState('list') // 'list' | 'trash'
-
-  // filtro + ricerca
   const [showAll, setShowAll] = useState(false)
   const [q, setQ] = useState('')
 
@@ -788,10 +796,7 @@ function ProDashboard({
 
   const selectedUser = prepared.find(r => r.u.id === selectedUserId)?.u || null
 
-  // form utente
   const [userForm, setUserForm] = useState({ fullName:'', phone:'', email:'' })
-
-  // form percorso (tendina + scadenza + saldato)
   const [percForm, setPercForm] = useState({
     name: PERCORSO_OPTIONS[0],
     professionalId: me.id,
@@ -800,9 +805,10 @@ function ProDashboard({
     paid: false
   })
 
-  const [dtOpen, setDtOpen] = useState(false)
+  // stato per edit percorso e per modale appuntamenti
+  const [editingPercId, setEditingPercId] = useState(null)
+  const [dtOpenFor, setDtOpenFor] = useState(null)
 
-  // update inline percorso per utente selezionato
   const updatePercorsoInline = (userId, percorsoId, patch) => {
     const u = users.find(x => x.id === userId); if (!u) return
     const nextPercorsi = (u.percorsi || []).map(p => p.id === percorsoId ? { ...p, ...patch } : p)
@@ -962,14 +968,11 @@ function ProDashboard({
                   <div className="text-sm text-gray-500">Seleziona un utente.</div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Header utente: mobile 2 righe */}
+                    {/* Titolo e codice in due righe su mobile */}
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                      {/* riga 1: solo Nome Cognome */}
                       <h3 className="text-lg font-semibold truncate">
                         {displaySurnameFirst(selectedUser.fullName)}
                       </h3>
-
-                      {/* riga 2: codice + pulsante Modifica */}
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs text-gray-500">Codice</span>
                         <input
@@ -1021,172 +1024,180 @@ function ProDashboard({
                     <div className="border-t pt-3">
                       <h4 className="font-semibold mb-2">Percorsi dell'utente</h4>
 
-{/* form nuovo percorso */}
-<div className="grid md:grid-cols-3 gap-3 mb-3">
-  <Field label="Nome percorso">
-    <select
-      className="rounded-xl border p-2"
-      value={percForm.name}
-      onChange={(e)=> setPercForm({ ...percForm, name: e.target.value })}
-    >
-      {PERCORSO_OPTIONS.map(opt => (
-        <option key={opt} value={opt}>{opt}</option>
-      ))}
-    </select>
-  </Field>
+                      {/* form nuovo percorso - due righe */}
+                      {/* Riga 1 */}
+                      <div className="grid md:grid-cols-5 gap-3">
+                        <Field label="Nome percorso">
+                          <select
+                            className="rounded-xl border p-2"
+                            value={percForm.name}
+                            onChange={(e)=> setPercForm({ ...percForm, name: e.target.value })}
+                          >
+                            {PERCORSO_OPTIONS.map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </Field>
 
-  <Field label="Professionista">
-    <select
-      className="rounded-xl border p-2"
-      value={percForm.professionalId}
-      onChange={(e)=> setPercForm({ ...percForm, professionalId: e.target.value })}
-    >
-      {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
-  </Field>
+                        <Field label="Professionista">
+                          <select className="rounded-xl border p-2"
+                            value={percForm.professionalId}
+                            onChange={(e)=>setPercForm({...percForm, professionalId: e.target.value})}>
+                            {pros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        </Field>
 
-  <Field label="Numero incontri">
-    <input
-      type="number"
-      className="rounded-xl border p-2"
-      value={percForm.totalSessions}
-      onChange={(e)=> setPercForm({ ...percForm, totalSessions: e.target.value })}
-    />
-  </Field>
-</div>
+                        <Field label="Numero di incontri (totale)">
+                          <input type="number" className="rounded-xl border p-2"
+                            value={percForm.totalSessions}
+                            onChange={(e)=>setPercForm({...percForm, totalSessions: e.target.value})} />
+                        </Field>
+                      </div>
 
-<div className="grid md:grid-cols-2 gap-3 mb-3">
-  <Field label="Scadenza percorso">
-    <input
-      type="date"
-      className="rounded-xl border p-2"
-      value={percForm.expiryYMD}
-      onChange={(e)=> setPercForm({ ...percForm, expiryYMD: e.target.value })}
-    />
-  </Field>
+                      {/* Riga 2 */}
+                      <div className="grid md:grid-cols-5 gap-3 mt-3">
+                        <Field label="Scadenza percorso">
+                          <input type="date" className="rounded-xl border p-2"
+                            value={percForm.expiryYMD}
+                            onChange={(e)=>setPercForm({...percForm, expiryYMD: e.target.value})} />
+                        </Field>
 
-  <div className="flex items-end">
-    <label className="inline-flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        checked={percForm.paid}
-        onChange={(e)=> setPercForm({ ...percForm, paid: e.target.checked })}
-      />
-      Percorso saldato
-    </label>
-  </div>
-</div>
+                        <div className="flex items-end">
+                          <label className="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox"
+                              checked={percForm.paid}
+                              onChange={(e)=> setPercForm({...percForm, paid: e.target.checked})} />
+                            Percorso saldato
+                          </label>
+                        </div>
+                      </div>
 
-<div className="flex items-end">
-  <Button onClick={()=>{
-    if (!percForm.name.trim()) return alert('Inserisci il nome del percorso')
-    onAddPercorso(selectedUser.id, percForm)
-    setPercForm({
-      name: PERCORSO_OPTIONS[0],
-      professionalId: percForm.professionalId,
-      totalSessions: 10,
-      expiryYMD: '',
-      paid: false
-    })
-  }}>
-    Aggiungi percorso
-  </Button>
-</div>
-
+                      <div className="flex items-end mt-3">
+                        <Button onClick={()=>{
+                          if(!percForm.name.trim()) return alert('Inserisci il nome del percorso')
+                          onAddPercorso(selectedUser.id, percForm)
+                          setPercForm({ name: PERCORSO_OPTIONS[0], professionalId: percForm.professionalId, totalSessions: 10, expiryYMD:'', paid:false })
+                        }}>Aggiungi percorso</Button>
+                      </div>
 
                       {/* elenco percorsi */}
                       <div className="space-y-4 mt-4">
                         {selectedUser.percorsi.map(percorso => {
                           const pro = pros.find(pr => pr.id === percorso.professionalId)
+                          const isEditing = editingPercId === percorso.id
+
                           return (
                             <div key={percorso.id} className="rounded-xl border-2 p-3" style={{ borderColor: pro?.color }}>
-                              
+                              {/* intestazione con titolo e pulsanti */}
                               <div className="flex items-center justify-between gap-2">
-  <div className="flex items-center gap-2 min-w-0">
-    <span
-      className="inline-block w-4 h-4 rounded-full shrink-0"
-      style={{ background: pro?.color }}
-    />
-    <div className="font-medium truncate">{percorso.name}</div>
-  </div>
-  <div className="text-xs text-gray-500">
-    Residuo {percorso.remainingSessions}/{percorso.totalSessions}
-  </div>
-</div>
-
-                              <div className="mt-1 text-xs text-gray-600">
-                                Scadenza percorso: <span className="font-medium">{fmtYMDtoIt(percorso.expiryYMD || '')}</span> •
-                                <span className="ml-2 font-medium">{percorso.paid ? 'Percorso saldato' : 'Percorso da saldare'}</span>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="inline-block w-4 h-4 rounded-full shrink-0" style={{ background: pro?.color }} />
+                                  <div className="font-medium truncate">{percorso.name}</div>
+                                </div>
+                                <div className="flex gap-2 shrink-0">
+                                  {!isEditing ? (
+                                    <>
+                                      <Button variant="ghost" onClick={() => setEditingPercId(percorso.id)}>Modifica</Button>
+                                      <Button variant="danger" onClick={()=>{
+                                        if (confirm('Eliminare questo percorso? Tutte le sue sessioni verranno rimosse.')) {
+                                          onDeletePercorso(selectedUser.id, percorso.id)
+                                        }
+                                      }}>Elimina</Button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Button variant="warn" onClick={() => setEditingPercId(null)}>Fine</Button>
+                                      <Button variant="ghost" onClick={() => setEditingPercId(null)}>Annulla</Button>
+                                      <Button variant="danger" onClick={()=>{
+                                        if (confirm('Eliminare questo percorso? Tutte le sue sessioni verranno rimosse.')) {
+                                          onDeletePercorso(selectedUser.id, percorso.id)
+                                        }
+                                      }}>Elimina</Button>
+                                    </>
+                                  )}
+                                </div>
                               </div>
 
-                              {/* modifica percorso: layout ampio in due righe */}
-<div className="mt-2 grid md:grid-cols-3 gap-3">
-  {/* Percorso largo */}
-  <div className="md:col-span-2">
-    <Field label="Percorso">
-      <select
-        className="rounded-xl border p-2 w-full"
-        value={percorso.name}
-        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { name: e.target.value })}
-      >
-        {PERCORSO_OPTIONS.map(opt => (
-          <option key={opt} value={opt}>{opt}</option>
-        ))}
-      </select>
-    </Field>
-  </div>
+                              <div className="mt-1 text-xs text-gray-600">
+                                Residuo <span className="font-medium">{percorso.remainingSessions}/{percorso.totalSessions}</span>
+                              </div>
 
-  {/* Totale incontri */}
-  <Field label="Totale incontri">
-    <input
-      type="number"
-      className="rounded-xl border p-2 w-full"
-      value={percorso.totalSessions}
-      onChange={(e)=>{
-        const newTotal = Math.max(0, Number(e.target.value || 0))
-        const done = (percorso.history || []).length
-        const newRem = Math.max(0, newTotal - done) // non perdi pianificati/svolti
-        updatePercorsoInline(selectedUser.id, percorso.id, {
-          totalSessions: newTotal,
-          remainingSessions: newRem
-        })
-      }}
-    />
-  </Field>
-</div>
+                              {/* DETTAGLI: vista compatta vs modifica */}
+                              {!isEditing ? (
+                                <div className="mt-3 grid gap-3 md:grid-cols-5">
+                                  <div className="col-span-2">
+                                    <div className="text-xs text-gray-500">Percorso</div>
+                                    <div className="text-sm font-medium break-words">{percorso.name}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-gray-500">Totale incontri</div>
+                                    <div className="text-sm font-medium">{percorso.totalSessions}</div>
+                                  </div>
+                                  <div className="col-span-2">
+                                    <div className="text-xs text-gray-500">Scadenza percorso</div>
+                                    <div className="text-sm font-medium break-words">{fmtYMDtoIt(percorso.expiryYMD || '')}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-gray-500">Pagamento</div>
+                                    <div className="text-sm font-medium">{percorso.paid ? 'Saldato' : 'Da saldare'}</div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="mt-3 grid gap-3 md:grid-cols-5">
+                                  <Field label="Percorso">
+                                    <select
+                                      className="rounded-xl border p-2"
+                                      value={percorso.name}
+                                      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { name: e.target.value })}
+                                    >
+                                      {PERCORSO_OPTIONS.map(opt => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                      ))}
+                                    </select>
+                                  </Field>
 
-<div className="mt-2 grid md:grid-cols-3 gap-3">
-  {/* Scadenza larga */}
-  <div className="md:col-span-2">
-    <Field label="Scadenza percorso">
-      <input
-        type="date"
-        className="rounded-xl border p-2 w-full"
-        value={percorso.expiryYMD || ''}
-        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })}
-      />
-    </Field>
-  </div>
+                                  <Field label="Totale incontri">
+                                    <input
+                                      type="number"
+                                      className="rounded-xl border p-2"
+                                      value={percorso.totalSessions}
+                                      onChange={(e)=>{
+                                        const newTotal = Math.max(0, Number(e.target.value || 0))
+                                        const done = (percorso.history || []).length
+                                        const newRem = Math.max(0, newTotal - done)
+                                        updatePercorsoInline(selectedUser.id, percorso.id, {
+                                          totalSessions: newTotal,
+                                          remainingSessions: newRem
+                                        })
+                                      }}
+                                    />
+                                  </Field>
 
-  {/* Pagato / da saldare */}
-  <div className="flex items-end">
-    <label className="inline-flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        checked={!!percorso.paid}
-        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })}
-      />
-      Percorso saldato
-    </label>
-  </div>
-</div>
+                                  <Field label="Scadenza percorso">
+                                    <input
+                                      type="date"
+                                      className="rounded-xl border p-2"
+                                      value={percorso.expiryYMD || ''}
+                                      onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { expiryYMD: e.target.value })}
+                                    />
+                                  </Field>
 
+                                  <div className="flex items-end">
+                                    <label className="inline-flex items-center gap-2 text-sm">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!percorso.paid}
+                                        onChange={(e)=> updatePercorsoInline(selectedUser.id, percorso.id, { paid: e.target.checked })}
+                                      />
+                                      Percorso saldato
+                                    </label>
+                                  </div>
+                                </div>
+                              )}
 
+                              {/* Aggiungi incontro - apre modale sul percorso corretto */}
                               <div className="mt-3">
-                                <Button onClick={()=> setDtOpen(true)}>Scegli data/ora</Button>
-                                <DateTimeModal open={dtOpen} onClose={()=> setDtOpen(false)} onConfirm={(iso)=>{
-                                  if (confirm(`Confermi l'aggiunta di questo incontro?`)) onPlan(selectedUser.id, percorso.id, iso)
-                                }} />
+                                <Button onClick={()=> setDtOpenFor(percorso.id)}>Aggiungi incontro</Button>
                               </div>
 
                               <div className="mt-4 space-y-4">
@@ -1223,6 +1234,19 @@ function ProDashboard({
                         {selectedUser.percorsi.length===0 && <div className="text-sm text-gray-500">Nessun percorso: aggiungine uno sopra.</div>}
                       </div>
                     </div>
+
+                    {/* Modale unica per appuntamenti: usa dtOpenFor */}
+                    <DateTimeModal
+                      open={!!dtOpenFor}
+                      onClose={()=> setDtOpenFor(null)}
+                      onConfirm={(iso)=>{
+                        if (!dtOpenFor) return
+                        if (confirm('Confermi l\'aggiunta di questo incontro?')) {
+                          onPlan(selectedUser.id, dtOpenFor, iso)
+                        }
+                        setDtOpenFor(null)
+                      }}
+                    />
                   </div>
                 )}
               </Card>
@@ -1234,7 +1258,6 @@ function ProDashboard({
     </div>
   )
 }
-
 
 function EditableSessionRow({ initialIso, onEdit, onDelete, onConfirm, hideConfirm, hideDelete, deleteMsg }) {
   const [editing, setEditing] = useState(false)
@@ -1296,7 +1319,7 @@ function UserDashboard({ pros, user, onBack }) {
         <Button variant="ghost" onClick={onBack}>Indietro</Button>
       </div>
 
-      {/* Solo codice (niente email/cell) */}
+      {/* Solo codice */}
       <Card>
         <div className="grid md:grid-cols-3 gap-3">
           <div>
